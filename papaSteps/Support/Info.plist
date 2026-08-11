@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSHealthShareUsageDescription</key>
+	<string>papaSteps can add optional heart-rate, walking-asymmetry, step, and distance insights to completed walks.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>papaSteps can save a completed outdoor walk and its route to Apple Health when you choose to enable that feature.</string>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>RouteRecording</key>
+		<string>Precise location lets papaSteps record your route, route distance, speed, and direction of travel during a walk.</string>
+	</dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>papaSteps uses your location during an active walk to record your route, speed, direction, and altitude.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>papaSteps uses motion data to count steps, estimate walking distance, and measure elevation during a walk.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+</dict>
+</plist>
