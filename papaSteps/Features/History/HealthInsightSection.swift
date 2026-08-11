@@ -9,9 +9,9 @@ struct HealthInsightSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Apple Health", systemImage: "heart.text.square.fill")
+                Label("Apple Health", systemImage: WalkSymbol.healthDetail)
                     .font(.headline)
-                    .foregroundStyle(.pink)
+                    .foregroundStyle(Color.signalHealth)
                     .accessibilityIdentifier("health.insights")
                 Spacer()
                 enrichmentStatus
@@ -22,7 +22,7 @@ struct HealthInsightSection: View {
                     title: "Average heart rate",
                     value: heartRateValue,
                     detail: heartRateDetail,
-                    systemImage: "heart.fill"
+                    systemImage: WalkSymbol.health
                 )
                 .accessibilityIdentifier("health.heartRate")
 
@@ -30,7 +30,7 @@ struct HealthInsightSection: View {
                     title: "Walking asymmetry",
                     value: asymmetryValue,
                     detail: asymmetryDetail,
-                    systemImage: "figure.walk.motion"
+                    systemImage: WalkSymbol.motion
                 )
                 .accessibilityIdentifier("health.asymmetry")
             }
@@ -39,7 +39,7 @@ struct HealthInsightSection: View {
                 Button {
                     refresh()
                 } label: {
-                    Label("Refresh Health Insights", systemImage: "arrow.clockwise")
+                    Label("Refresh Health Insights", systemImage: WalkSymbol.refresh)
                 }
                 .buttonStyle(.bordered)
                 .disabled(isRefreshing)
@@ -51,36 +51,32 @@ struct HealthInsightSection: View {
             }
 
             if detail.healthWorkoutExportStatus != .disabled {
-                Label(workoutStatusText, systemImage: workoutStatusImage)
+                Label(workoutStatusText, systemImage: detail.healthWorkoutExportStatus.symbolName)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(detail.healthWorkoutExportStatus.signalColor)
             }
         }
-        .padding()
-        .background(.pink.opacity(0.08), in: .rect(cornerRadius: 16))
+        .padding(Spacing.cardPadding)
+        .tintedSurface(.signalHealth)
     }
 
     private var enrichmentStatus: some View {
         Text(enrichmentStatusText)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(
+                isRefreshing ? Color.signalNeutral : detail.healthEnrichmentStatus.signalColor
+            )
     }
 
     private var enrichmentStatusText: String {
-        if isRefreshing || detail.healthEnrichmentStatus == .pending {
-            return "Checking…"
+        if isRefreshing {
+            return HealthEnrichmentStatus.pending.displayName
         }
-        return switch detail.healthEnrichmentStatus {
-        case .notRequested: "Optional"
-        case .pending: "Checking…"
-        case .completed: "Refreshed"
-        case .unavailable: "Unavailable"
-        case .failed: "Needs retry"
-        }
+        return detail.healthEnrichmentStatus.displayName
     }
 
     private var heartRateValue: String {
-        detail.averageHeartRate.map { "\(Int($0.rounded())) bpm" } ?? "Not Available"
+        detail.averageHeartRate.map { "\(Int($0.rounded())) bpm" } ?? "Not available"
     }
 
     private var heartRateDetail: String {
@@ -93,7 +89,7 @@ struct HealthInsightSection: View {
     }
 
     private var asymmetryValue: String {
-        guard let value = detail.walkingAsymmetryAverage else { return "Not Available" }
+        guard let value = detail.walkingAsymmetryAverage else { return "Not available" }
         return value.formatted(.percent.precision(.fractionLength(1)))
     }
 
@@ -130,20 +126,10 @@ struct HealthInsightSection: View {
     }
 
     private var workoutStatusText: String {
-        switch detail.healthWorkoutExportStatus {
-        case .disabled: "Workout export is off"
-        case .pending: "Saving workout to Apple Health…"
-        case .completed: "Workout saved to Apple Health"
-        case .failed: detail.healthWorkoutExportError ?? "Workout export needs a retry"
+        if detail.healthWorkoutExportStatus == .failed,
+           let error = detail.healthWorkoutExportError {
+            return error
         }
-    }
-
-    private var workoutStatusImage: String {
-        switch detail.healthWorkoutExportStatus {
-        case .disabled: "heart.slash"
-        case .pending: "arrow.trianglehead.2.clockwise"
-        case .completed: "checkmark.circle"
-        case .failed: "exclamationmark.triangle"
-        }
+        return detail.healthWorkoutExportStatus.displayName
     }
 }

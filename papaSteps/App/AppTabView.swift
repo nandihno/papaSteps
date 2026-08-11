@@ -12,19 +12,19 @@ struct AppTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            Tab("Walk", systemImage: "figure.walk", value: .walk) {
+            Tab("Walk", systemImage: WalkSymbol.walk, value: .walk) {
                 NavigationStack {
                     WalkView()
                 }
             }
 
-            Tab("History", systemImage: "clock.arrow.circlepath", value: .history) {
+            Tab("History", systemImage: WalkSymbol.history, value: .history) {
                 NavigationStack {
                     HistoryView()
                 }
             }
 
-            Tab("Progress", systemImage: "chart.line.uptrend.xyaxis", value: .progress) {
+            Tab("Progress", systemImage: WalkSymbol.progress, value: .progress) {
                 NavigationStack {
                     ProgressDashboardView()
                 }

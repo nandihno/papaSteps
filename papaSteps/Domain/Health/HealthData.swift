@@ -1,20 +1,12 @@
 import Foundation
 
-enum HealthAccessState: String, Codable, Equatable, Sendable {
+enum HealthAccessState: String, CaseIterable, Codable, Equatable, Sendable {
     case unavailable
     case notRequested
     case requested
-
-    var displayName: String {
-        switch self {
-        case .unavailable: "Unavailable"
-        case .notRequested: "Optional"
-        case .requested: "Requested"
-        }
-    }
 }
 
-enum HealthWorkoutExportStatus: String, Codable, Equatable, Sendable {
+enum HealthWorkoutExportStatus: String, CaseIterable, Codable, Equatable, Sendable {
     case disabled
     case pending
     case completed

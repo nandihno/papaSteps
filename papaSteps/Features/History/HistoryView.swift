@@ -10,7 +10,7 @@ struct HistoryView: View {
         Group {
             if historyStore.summaries.isEmpty {
                 ContentUnavailableView {
-                    Label("No Walks Yet", systemImage: "clock.arrow.circlepath")
+                    Label("No Walks Yet", systemImage: WalkSymbol.history)
                 } description: {
                     Text("Finish a walk to save its summary and accepted GPS route on this iPhone.")
                 }
@@ -85,9 +85,9 @@ private struct WalkHistoryRow: View {
                     .font(.headline)
                 Spacer()
                 if summary.origin == .appleHealth {
-                    Label("Health", systemImage: "heart.fill")
+                    Label("Health", systemImage: WalkSymbol.health)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.pink)
+                        .foregroundStyle(Color.signalHealth)
                 }
                 routeQualityLabel
             }
@@ -98,21 +98,24 @@ private struct WalkHistoryRow: View {
                         summary.displayDistance,
                         configuration: configuration
                     ),
-                    systemImage: "ruler"
+                    systemImage: WalkSymbol.distance
                 )
-                Label(summary.displaySteps.map(String.init) ?? "—", systemImage: "shoeprints.fill")
-                Label(WalkMetricFormatting.duration(summary.movingDuration), systemImage: "timer")
+                Label(summary.displaySteps.map(String.init) ?? "—", systemImage: WalkSymbol.steps)
+                Label(
+                    WalkMetricFormatting.duration(summary.movingDuration),
+                    systemImage: WalkSymbol.movingTime
+                )
             }
             .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color.textSecondary)
         }
         .padding(.vertical, 4)
     }
 
     private var routeQualityLabel: some View {
-        Text(summary.routeQuality.rawValue.capitalized)
+        Text(summary.routeQuality.displayName)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(summary.routeQuality == .good ? .green : .secondary)
+            .foregroundStyle(summary.routeQuality.signalColor)
     }
 }
 
@@ -157,7 +160,7 @@ struct WalkDetailView: View {
                 NavigationLink {
                     HealthSettingsView()
                 } label: {
-                    Label("Apple Health", systemImage: "heart.text.square")
+                    Label("Apple Health", systemImage: WalkSymbol.healthDetail)
                 }
             }
         }
@@ -192,19 +195,19 @@ struct WalkDetailContent: View {
                             configuration: displayPreferences.configuration
                         ),
                         detail: distanceSourceLabel,
-                        systemImage: "ruler"
+                        systemImage: WalkSymbol.distance
                     )
                     WalkMetricCard(
                         title: "Steps",
                         value: detail.summary.displaySteps.map(String.init) ?? "—",
                         detail: stepSourceLabel,
-                        systemImage: "shoeprints.fill"
+                        systemImage: WalkSymbol.steps
                     )
                     WalkMetricCard(
                         title: "Moving time",
                         value: WalkMetricFormatting.duration(detail.summary.movingDuration),
                         detail: "Excludes pauses",
-                        systemImage: "timer"
+                        systemImage: WalkSymbol.movingTime
                     )
                     WalkMetricCard(
                         title: displayPreferences.speedDisplay == .pace ? "Average pace" : "Average speed",
@@ -213,7 +216,7 @@ struct WalkDetailContent: View {
                             configuration: displayPreferences.configuration
                         ),
                         detail: "Distance ÷ moving time",
-                        systemImage: "speedometer"
+                        systemImage: WalkSymbol.speed
                     )
                     WalkMetricCard(
                         title: "Elevation gain",
@@ -221,14 +224,14 @@ struct WalkDetailContent: View {
                             detail.elevationGain,
                             configuration: displayPreferences.configuration
                         ),
-                        detail: detail.altitudeQuality.rawValue.capitalized,
-                        systemImage: "arrow.up.right"
+                        detail: detail.altitudeQuality.displayName,
+                        systemImage: WalkSymbol.elevationGain
                     )
                     WalkMetricCard(
                         title: "Elapsed time",
                         value: WalkMetricFormatting.duration(detail.summary.elapsedDuration),
                         detail: "Paused \(WalkMetricFormatting.duration(detail.pausedDuration))",
-                        systemImage: "clock"
+                        systemImage: WalkSymbol.elapsedTime
                     )
                 }
 
@@ -241,7 +244,7 @@ struct WalkDetailContent: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Recording details")
-                        .font(.headline)
+                        .font(.sectionHeader)
                     LabeledContent("Started") {
                         Text(detail.summary.startDate.formatted(date: .complete, time: .shortened))
                     }
@@ -254,19 +257,21 @@ struct WalkDetailContent: View {
                         Text(detail.summary.timeZoneIdentifier)
                     }
                     LabeledContent("Route quality") {
-                        Text(detail.summary.routeQuality.rawValue.capitalized)
+                        Text(detail.summary.routeQuality.displayName)
+                            .foregroundStyle(detail.summary.routeQuality.signalColor)
                     }
                     LabeledContent("GPS points") {
                         Text("\(detail.acceptedLocationCount) accepted · \(detail.rejectedLocationCount) rejected")
                     }
                     if let reason = detail.summary.routeQualityReason {
-                        Label(reason.explanation, systemImage: "info.circle")
+                        Label(reason.explanation, systemImage: WalkSymbol.information)
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.textSecondary)
                     }
                 }
-                .padding()
-                .background(.quaternary, in: .rect(cornerRadius: 16))
+                .padding(Spacing.cardPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .cardSurface()
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding()
@@ -275,19 +280,10 @@ struct WalkDetailContent: View {
     }
 
     private var distanceSourceLabel: String {
-        switch detail.summary.distanceSource {
-        case .route: "GPS route"
-        case .pedometer: "Pedometer estimate"
-        case .health: "Apple Health"
-        case .unavailable: "Unavailable"
-        }
+        detail.summary.distanceSource.displayName
     }
 
     private var stepSourceLabel: String {
-        switch detail.summary.stepSource {
-        case .motion: "Motion total"
-        case .health: "Apple Health"
-        case .unavailable: "Unavailable"
-        }
+        detail.summary.stepSource.displayName
     }
 }

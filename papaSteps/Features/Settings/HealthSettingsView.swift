@@ -16,15 +16,15 @@ struct HealthSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 } icon: {
-                    Image(systemName: "heart.text.square.fill")
-                        .foregroundStyle(.pink)
+                    Image(systemName: WalkSymbol.healthDetail)
+                        .foregroundStyle(Color.signalHealth)
                 }
             }
 
             Section("Access") {
                 LabeledContent("Apple Health") {
                     Text(store.accessState.displayName)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(store.accessState.signalColor)
                 }
 
                 if store.accessState == .notRequested {
@@ -69,7 +69,7 @@ struct HealthSettingsView: View {
                 NavigationLink {
                     HealthWorkoutImportView()
                 } label: {
-                    Label("Import walking workouts", systemImage: "square.and.arrow.down")
+                    Label("Import walking workouts", systemImage: WalkSymbol.importWorkouts)
                 }
                 .disabled(store.accessState == .unavailable)
                 .accessibilityIdentifier("health.import.open")

@@ -131,7 +131,7 @@ private struct HealthWorkoutImportRow: View {
             if item.isImported {
                 Text("Imported")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Color.signalGood)
             }
         }
         .contentShape(.rect)

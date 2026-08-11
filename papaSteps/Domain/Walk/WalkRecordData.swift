@@ -19,32 +19,32 @@ enum WalkOrigin: String, Codable, Equatable, Sendable {
     }
 }
 
-enum DistanceSource: String, Codable, Sendable {
+enum DistanceSource: String, CaseIterable, Codable, Sendable {
     case unavailable
     case route
     case pedometer
     case health
 }
 
-enum StepSource: String, Codable, Sendable {
+enum StepSource: String, CaseIterable, Codable, Sendable {
     case unavailable
     case motion
     case health
 }
 
-enum AltitudeSource: String, Codable, Sendable {
+enum AltitudeSource: String, CaseIterable, Codable, Sendable {
     case unavailable
     case barometer
     case location
 }
 
-enum MetricQuality: String, Codable, Sendable {
+enum MetricQuality: String, CaseIterable, Codable, Sendable {
     case unavailable
     case degraded
     case good
 }
 
-enum RouteQuality: String, Codable, Sendable {
+enum RouteQuality: String, CaseIterable, Codable, Sendable {
     case unavailable
     case degraded
     case good
@@ -95,7 +95,7 @@ enum WalkRecoveryCause: String, Codable, Sendable {
     }
 }
 
-enum HealthEnrichmentStatus: String, Codable, Sendable {
+enum HealthEnrichmentStatus: String, CaseIterable, Codable, Sendable {
     case notRequested
     case pending
     case completed

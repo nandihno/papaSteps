@@ -1,5 +1,9 @@
 import SwiftUI
 
+/// Grid tile used by History and Progress.
+///
+/// Presentation now lives in `MetricTile`; this remains as the call site those
+/// tabs already use, and retires as each one migrates (U2, U3).
 struct WalkMetricCard: View {
     let title: String
     let value: String
@@ -8,28 +12,13 @@ struct WalkMetricCard: View {
     var isStale = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Text(value)
-                .font(.title2.monospacedDigit().bold())
-                .foregroundStyle(isStale ? .secondary : .primary)
-                .minimumScaleFactor(0.7)
-
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(isStale ? .orange : .secondary)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, minHeight: 112, alignment: .topLeading)
-        .padding()
-        .background(.quaternary, in: .rect(cornerRadius: 16))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(title)
-        .accessibilityValue("\(value). \(detail)")
-        .accessibilityHint(isStale ? "This metric may be out of date." : "")
+        MetricTile(
+            title: title,
+            value: value,
+            detail: detail,
+            systemImage: systemImage,
+            isStale: isStale
+        )
     }
 }
 
@@ -42,7 +31,7 @@ struct WalkMetricGrid<Content: View>: View {
             columns: dynamicTypeSize.isAccessibilitySize
                 ? [GridItem(.flexible())]
                 : [GridItem(.flexible()), GridItem(.flexible())],
-            spacing: 12,
+            spacing: Spacing.gridGutter,
             content: { content }
         )
     }

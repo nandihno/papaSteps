@@ -13,7 +13,7 @@ enum RuntimeEnvironment: String, Sendable {
     }
 }
 
-enum CapabilityAvailability: String, Sendable {
+enum CapabilityAvailability: String, CaseIterable, Sendable {
     case available
     case permissionRequired
     case limited
@@ -28,7 +28,7 @@ struct CapabilityStatus: Identifiable, Equatable, Sendable {
     let detail: String
 }
 
-enum PermissionAuthorizationState: String, Codable, Sendable {
+enum PermissionAuthorizationState: String, CaseIterable, Codable, Sendable {
     case notDetermined
     case authorized
     case denied
@@ -36,7 +36,7 @@ enum PermissionAuthorizationState: String, Codable, Sendable {
     case unavailable
 }
 
-enum LocationAuthorizationState: String, Codable, Sendable {
+enum LocationAuthorizationState: String, CaseIterable, Codable, Sendable {
     case notDetermined
     case whenInUse
     case always
@@ -48,7 +48,7 @@ enum LocationAuthorizationState: String, Codable, Sendable {
     }
 }
 
-enum LocationAccuracyState: String, Codable, Sendable {
+enum LocationAccuracyState: String, CaseIterable, Codable, Sendable {
     case full
     case reduced
     case unknown

@@ -17,35 +17,49 @@ struct WalkRouteMap: View {
     var body: some View {
         Group {
             if coordinates.isEmpty, currentCoordinate == nil {
-                ContentUnavailableView(
-                    "Route Unavailable",
-                    systemImage: "location.slash",
-                    description: Text("A route appears after reliable precise-location points are accepted.")
-                )
-                .background(.quaternary)
+                VStack(spacing: Spacing.xs) {
+                    Image(systemName: WalkSymbol.locationOff)
+                        .font(.title)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color.textSecondary)
+                    Text("No route yet")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Your route appears once precise location points are accepted.")
+                        .font(.caption)
+                        .foregroundStyle(Color.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(Spacing.cardPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .cardSurface(cornerRadius: Radius.map)
             } else {
                 Map(position: $position, interactionModes: .all) {
                     ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
                         if segment.count > 1 {
                             MapPolyline(coordinates: segment.map(\.clCoordinate))
-                                .stroke(.blue, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                                .stroke(
+                                    Color.brandGreen,
+                                    style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+                                )
                         }
                     }
 
                     if showsEndpointMarkers, let first = coordinates.first {
-                        Marker("Start", systemImage: "figure.walk.departure", coordinate: first.clCoordinate)
-                            .tint(.green)
+                        Marker("Start", systemImage: WalkSymbol.start, coordinate: first.clCoordinate)
+                            .tint(Color.brandGreen)
                     }
                     if showsEndpointMarkers, let last = coordinates.last {
-                        Marker("Finish", systemImage: "flag.checkered", coordinate: last.clCoordinate)
-                            .tint(.red)
+                        // Ink, not red: red means "something is wrong" everywhere
+                        // else in the palette, and finishing a walk is not that.
+                        Marker("Finish", systemImage: WalkSymbol.finish, coordinate: last.clCoordinate)
+                            .tint(Color.brandInk)
                     } else if let currentCoordinate {
                         Marker(
                             "Current position",
-                            systemImage: "figure.walk",
+                            systemImage: WalkSymbol.walk,
                             coordinate: currentCoordinate.clCoordinate
                         )
-                        .tint(.blue)
+                        .tint(Color.brandGreen)
                     }
                 }
                 .mapStyle(.standard(pointsOfInterest: .excludingAll))
@@ -78,9 +92,14 @@ struct WalkRouteMap: View {
                 .accessibilityLabel(mapAccessibilityLabel)
             }
         }
-        .frame(height: followsCurrentLocation ? 230 : 280)
-        .clipShape(.rect(cornerRadius: 16))
+        .frame(height: mapHeight)
+        .clipShape(.rect(cornerRadius: Radius.map, style: .continuous))
         .accessibilityIdentifier("walk.route.map")
+    }
+
+    private var mapHeight: CGFloat {
+        if coordinates.isEmpty, currentCoordinate == nil { return 150 }
+        return followsCurrentLocation ? 260 : 300
     }
 
     private var mapAccessibilityLabel: String {

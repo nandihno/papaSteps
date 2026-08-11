@@ -15,7 +15,7 @@ struct CapabilityStatusRow: View {
                     .font(.body.weight(.medium))
                 Text(status.detail)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
         }
         .accessibilityElement(children: .combine)
@@ -23,36 +23,14 @@ struct CapabilityStatusRow: View {
     }
 
     private var iconName: String {
-        switch status.availability {
-        case .available:
-            "checkmark.circle.fill"
-        case .permissionRequired:
-            "lock.circle.fill"
-        case .limited:
-            "exclamationmark.circle.fill"
-        case .unavailable:
-            "xmark.circle.fill"
-        case .checking:
-            "ellipsis.circle.fill"
-        }
+        status.availability.symbolName
     }
 
     private var iconColor: Color {
-        switch status.availability {
-        case .available:
-            .green
-        case .permissionRequired:
-            .blue
-        case .limited:
-            .orange
-        case .unavailable:
-            .secondary
-        case .checking:
-            .secondary
-        }
+        status.availability.signalColor
     }
 
     private var accessibilityValue: String {
-        "\(status.availability.rawValue). \(status.detail)"
+        "\(status.availability.displayName). \(status.detail)"
     }
 }

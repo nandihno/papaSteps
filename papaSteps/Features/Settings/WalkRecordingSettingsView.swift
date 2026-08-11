@@ -54,7 +54,7 @@ struct WalkRecordingSettingsView: View {
             }
 
             Section("Lock Screen") {
-                Label("Live walk metrics", systemImage: "figure.walk.motion")
+                Label("Live walk metrics", systemImage: WalkSymbol.motion)
                 Text("During an active walk, the Lock Screen can show elapsed time, moving time, steps, distance, and Pause, Resume, Finish, or Keep Walking actions. Live Activities can be disabled separately in iPhone Settings.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)

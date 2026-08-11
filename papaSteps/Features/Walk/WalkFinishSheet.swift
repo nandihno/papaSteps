@@ -9,9 +9,9 @@ struct WalkFinishSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 20) {
-                Image(systemName: "checkered.flag.circle.fill")
+                Image(systemName: WalkSymbol.finishPrompt)
                     .font(.system(size: 64))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(Color.brandGreenInk)
                     .accessibilityHidden(true)
 
                 VStack(spacing: 6) {
@@ -19,25 +19,21 @@ struct WalkFinishSheet: View {
                         .font(.title2.bold())
                     Text("Your locally recorded steps, time, distance, and elevation will be saved.")
                         .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.textSecondary)
                 }
 
                 Button("Finish Walk") {
                     dismiss()
                     Task { await store.finish() }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.primaryWalk)
                 .accessibilityIdentifier("walk.finish.confirm")
 
                 Button("Keep Walking") {
                     store.keepWalking()
                     dismiss()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.secondaryWalk)
                 .accessibilityIdentifier("walk.finish.keepWalking")
 
                 Button("Discard Walk", role: .destructive) {

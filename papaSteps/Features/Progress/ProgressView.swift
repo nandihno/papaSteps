@@ -16,7 +16,7 @@ struct ProgressDashboardView: View {
                 )
             } else if progressStore.snapshot.eligibleWalkCount == 0 {
                 ContentUnavailableView {
-                    Label("No Eligible Walks Yet", systemImage: "chart.line.uptrend.xyaxis")
+                    Label("No Eligible Walks Yet", systemImage: WalkSymbol.progress)
                 } description: {
                     Text("Progress includes completed walks of at least 5 minutes and 250 m with a usable route. Your recording history remains unchanged.")
                 }
@@ -63,17 +63,17 @@ private struct ProgressContent: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("This week")
                         .font(.title2.bold())
-                    Text("ISO week \(snapshot.currentWeek.week.number) · Rules v\(snapshot.rulesVersion)")
+                    Text(currentWeekSubtitle)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.textSecondary)
                 }
                 Spacer()
                 Label(
                     "\(snapshot.currentStreak)-week streak",
-                    systemImage: "flame.fill"
+                    systemImage: WalkSymbol.streak
                 )
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(snapshot.currentStreak > 0 ? .orange : .secondary)
+                .foregroundStyle(snapshot.currentStreak > 0 ? Color.signalCaution : Color.textSecondary)
             }
 
             WalkMetricGrid {
@@ -88,14 +88,14 @@ private struct ProgressContent: View {
     private var weeklyDistanceChart: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Weekly distance")
-                .font(.headline)
+                .font(.sectionHeader)
 
             Chart(chartWeeks) { aggregate in
                 BarMark(
                     x: .value("Week", weekLabel(aggregate.week)),
                     y: .value("Distance", aggregate.totals.distanceMeters)
                 )
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.brandGreen)
                 .accessibilityLabel(weekAccessibilityLabel(aggregate.week))
                 .accessibilityValue(
                     WalkMetricFormatting.distance(
@@ -113,14 +113,15 @@ private struct ProgressContent: View {
             .accessibilityLabel("Weekly distance chart")
             .accessibilityIdentifier("progress.weeklyDistance.chart")
         }
-        .padding()
-        .background(.quaternary, in: .rect(cornerRadius: 16))
+        .padding(Spacing.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
     }
 
     private var comparisonsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Weekly comparisons")
-                .font(.headline)
+                .font(.sectionHeader)
             ForEach(WalkProgressMetric.allCases) { metric in
                 VStack(alignment: .leading, spacing: 8) {
                     Text(metric.title)
@@ -134,14 +135,15 @@ private struct ProgressContent: View {
                 }
             }
         }
-        .padding()
-        .background(.quaternary, in: .rect(cornerRadius: 16))
+        .padding(Spacing.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
     }
 
     private var goalsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Weekly goals")
-                .font(.headline)
+                .font(.sectionHeader)
             ForEach(snapshot.goals) { goal in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -151,37 +153,39 @@ private struct ProgressContent: View {
                             .foregroundStyle(.secondary)
                     }
                     ProgressView(value: goal.fractionComplete)
-                        .tint(goal.isCompleted ? .green : .accentColor)
+                        .tint(goal.isCompleted ? Color.signalGood : Color.brandGreen)
                         .accessibilityLabel("\(goal.metric.title) weekly goal")
                         .accessibilityValue("\(Int((goal.fractionComplete * 100).rounded())) percent complete")
                 }
             }
         }
-        .padding()
-        .background(.quaternary, in: .rect(cornerRadius: 16))
+        .padding(Spacing.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
     }
 
     private var personalBestsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Personal bests")
-                .font(.headline)
+                .font(.sectionHeader)
             ForEach(snapshot.personalBests) { best in
                 LabeledContent(best.metric.title) {
                     Text(format(best.metric.value(in: totals(for: best.walk)), metric: best.metric))
                 }
             }
         }
-        .padding()
-        .background(.quaternary, in: .rect(cornerRadius: 16))
+        .padding(Spacing.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
     }
 
     private var achievementsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Achievements")
-                .font(.headline)
+                .font(.sectionHeader)
             if snapshot.badges.isEmpty {
                 Text("Complete an eligible walk to begin earning achievements.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             } else {
                 ForEach(snapshot.badges) { badge in
                     Label {
@@ -189,22 +193,26 @@ private struct ProgressContent: View {
                             Text(badge.title)
                             Text(badge.detail)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.textSecondary)
                         }
                     } icon: {
-                        Image(systemName: "medal.fill")
-                            .foregroundStyle(.yellow)
+                        Image(systemName: WalkSymbol.badge)
+                            .foregroundStyle(Color.signalAward)
                     }
                 }
             }
             if snapshot.ineligibleWalkCount > 0 {
                 Text("\(snapshot.ineligibleWalkCount) saved walk\(snapshot.ineligibleWalkCount == 1 ? " is" : "s are") not included under the current eligibility rules.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
+            Text("Eligibility rules version \(snapshot.rulesVersion)")
+                .font(.caption)
+                .foregroundStyle(Color.textTertiary)
         }
-        .padding()
-        .background(.quaternary, in: .rect(cornerRadius: 16))
+        .padding(Spacing.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
     }
 
     private func metricCard(_ metric: WalkProgressMetric, value: Double) -> some View {
@@ -240,11 +248,16 @@ private struct ProgressContent: View {
 
     private func icon(for metric: WalkProgressMetric) -> String {
         switch metric {
-        case .distance: "ruler"
-        case .duration: "timer"
-        case .steps: "shoeprints.fill"
-        case .elevation: "arrow.up.right"
+        case .distance: WalkSymbol.distance
+        case .duration: WalkSymbol.movingTime
+        case .steps: WalkSymbol.steps
+        case .elevation: WalkSymbol.elevationGain
         }
+    }
+
+    private var currentWeekSubtitle: String {
+        let start = snapshot.currentWeek.week.date(in: .current)
+        return "Week of \(start.formatted(.dateTime.day().month(.wide)))"
     }
 
     private func weekLabel(_ week: WalkWeek) -> String {

@@ -20,7 +20,8 @@ struct WalkPermissionSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                     } icon: {
-                        Image(systemName: "figure.walk.motion")
+                        Image(systemName: WalkSymbol.motion)
+                            .foregroundStyle(Color.brandGreenInk)
                     }
 
                     Label {
@@ -32,7 +33,8 @@ struct WalkPermissionSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                     } icon: {
-                        Image(systemName: "location")
+                        Image(systemName: WalkSymbol.location)
+                            .foregroundStyle(Color.brandGreenInk)
                     }
                 } header: {
                     Text("Used during a walk")
@@ -44,8 +46,9 @@ struct WalkPermissionSheet: View {
                     Section("Precise Location") {
                         Label(
                             "Precise Location improves route distance, GPS speed, direction, and map position. You can continue without it.",
-                            systemImage: "location.slash.circle"
+                            systemImage: WalkSymbol.locationOff
                         )
+                        .foregroundStyle(Color.signalCaution)
                     }
                 }
 
