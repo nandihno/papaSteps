@@ -166,6 +166,7 @@ final class LiveWalkSessionCoordinator: WalkSessionCoordinating {
         }
 
         await reconcilePedometer(at: date)
+        await reconstructMovingTime(at: date)
         let record = try await engine.finalize(at: date)
         cachedFinalRecord = record
         stopDetector.stop()
@@ -303,6 +304,48 @@ final class LiveWalkSessionCoordinator: WalkSessionCoordinating {
             await reconcilePedometer(at: date)
             await publishCheckpoint(at: date)
         }
+    }
+
+    /// Rebuilds moving time from pedometer history over the whole walk.
+    ///
+    /// Live movement evidence is only as dense as the sensor callbacks that
+    /// carry it, which is not dense at all with the phone pocketed or the app
+    /// suspended. Querying step history bucket by bucket recovers what the
+    /// live figure missed. Any failure leaves the live figure in place.
+    private func reconstructMovingTime(at date: Date) async {
+        guard let sessionStartDate,
+              motionClient.authorizationState == .authorized,
+              motionClient.stepCountingAvailable else {
+            return
+        }
+
+        let buckets = MovingTimeReconstruction.buckets(
+            from: sessionStartDate,
+            to: date,
+            preferredDuration: configuration.movingTimeBucket,
+            maximumBuckets: configuration.movingTimeMaximumBuckets
+        )
+        guard !buckets.isEmpty else { return }
+
+        var intervals: [PedometerInterval] = []
+        intervals.reserveCapacity(buckets.count)
+        for bucket in buckets {
+            do {
+                let sample = try await motionClient.queryPedometer(
+                    from: bucket.start,
+                    to: bucket.end
+                )
+                intervals.append(
+                    PedometerInterval(interval: bucket, steps: sample.cumulativeSteps)
+                )
+            } catch {
+                // A partial history still improves on the live figure, and the
+                // resolver only takes the rebuilt value when it is larger.
+                continue
+            }
+        }
+
+        await engine.applyMovingTimeReconstruction(intervals, at: date)
     }
 
     private func reconcilePedometer(at date: Date) async {

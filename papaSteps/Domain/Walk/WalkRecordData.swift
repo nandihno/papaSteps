@@ -374,6 +374,9 @@ struct WalkEngineCheckpoint: Codable, Equatable, Sendable {
     let elapsedDuration: TimeInterval
     let movingDuration: TimeInterval
     let pausedDuration: TimeInterval
+    /// Optional so checkpoints written before moving-time reconstruction still
+    /// decode; the blob is stored as JSON, not as a schema column.
+    var pauseWindows: [DateInterval]?
 
     let rawSteps: Int?
     let rawPedometerDistance: Double?

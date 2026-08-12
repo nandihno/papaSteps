@@ -12,6 +12,13 @@ actor WalkMetricsEngine {
 
     private var elapsedDuration: TimeInterval = 0
     private var movingDuration: TimeInterval = 0
+    /// Wall-clock windows the walk spent paused, so a rebuilt moving time can
+    /// exclude them. The scalar `pausedDuration` cannot answer "when".
+    private var pauseWindows: [DateInterval] = []
+    private var currentPauseStart: Date?
+    /// Set at finalization from pedometer history; nil when no step data was
+    /// available, in which case the live figure stands.
+    private var reconstructedMovingDuration: TimeInterval?
     private var pausedDuration: TimeInterval = 0
 
     private var rawSteps: Int?
@@ -358,6 +365,7 @@ actor WalkMetricsEngine {
         _ = tick(at: date)
         guard isActive, !isPaused else { return snapshot(at: date) }
         isPaused = true
+        currentPauseStart = date
         pauseStepsBaseline = rawSteps
         pauseDistanceBaseline = rawPedometerDistance
         lastAcceptedLocation = nil
@@ -370,6 +378,7 @@ actor WalkMetricsEngine {
         _ = tick(at: date)
         guard isActive, isPaused else { return snapshot(at: date) }
         commitPausedOffsets()
+        closePauseWindow(at: date)
         isPaused = false
         lastAcceptedLocation = nil
         routeSegmentStartPending = true
@@ -388,6 +397,39 @@ actor WalkMetricsEngine {
         return snapshot(at: date)
     }
 
+    /// Rebuilds moving time from pedometer history for the whole walk.
+    ///
+    /// Called before `finalize` with one entry per query bucket. The result is
+    /// only used if it exceeds the live figure, and never exceeds elapsed time
+    /// minus paused time.
+    func applyMovingTimeReconstruction(
+        _ intervals: [PedometerInterval],
+        at date: Date
+    ) {
+        guard !intervals.isEmpty else { return }
+        reconstructedMovingDuration = MovingTimeReconstruction.movingDuration(
+            from: intervals,
+            pauseWindows: allPauseWindows(closingAt: date),
+            cadence: configuration.assumedWalkingCadence
+        )
+    }
+
+    private func closePauseWindow(at date: Date) {
+        guard let start = currentPauseStart, date > start else {
+            currentPauseStart = nil
+            return
+        }
+        pauseWindows.append(DateInterval(start: start, end: date))
+        currentPauseStart = nil
+    }
+
+    /// Completed pause windows, plus the one still open if the walk is paused
+    /// right now.
+    private func allPauseWindows(closingAt date: Date) -> [DateInterval] {
+        guard let start = currentPauseStart, date > start else { return pauseWindows }
+        return pauseWindows + [DateInterval(start: start, end: date)]
+    }
+
     func finalize(at date: Date) throws -> NewWalkRecord {
         _ = tick(at: date)
         guard let walkID, let startDate else {
@@ -396,6 +438,7 @@ actor WalkMetricsEngine {
 
         if isPaused {
             commitPausedOffsets()
+            closePauseWindow(at: date)
         }
         isActive = false
         isPaused = false
@@ -403,8 +446,14 @@ actor WalkMetricsEngine {
         let finalSnapshot = snapshot(at: date)
         let selectedDistance = selectedDistance()
         let effectiveSteps = effectiveStepCount()
+        let resolvedMovingDuration = MovingTimeReconstruction.resolve(
+            live: movingDuration,
+            reconstructed: reconstructedMovingDuration,
+            elapsedDuration: elapsedDuration,
+            pausedDuration: pausedDuration
+        )
         let averageSpeed = selectedDistance.value.flatMap { distance in
-            movingDuration > 0 ? distance / movingDuration : nil
+            resolvedMovingDuration > 0 ? distance / resolvedMovingDuration : nil
         }
 
         return NewWalkRecord(
@@ -414,7 +463,7 @@ actor WalkMetricsEngine {
             endDate: date,
             timeZoneIdentifier: timeZoneIdentifier,
             elapsedDuration: elapsedDuration,
-            movingDuration: movingDuration,
+            movingDuration: resolvedMovingDuration,
             pausedDuration: pausedDuration,
             displayDistance: selectedDistance.value,
             distanceSource: selectedDistance.source,
@@ -456,6 +505,7 @@ actor WalkMetricsEngine {
             elapsedDuration: elapsedDuration,
             movingDuration: movingDuration,
             pausedDuration: pausedDuration,
+            pauseWindows: allPauseWindows(closingAt: date),
             rawSteps: rawSteps,
             rawPedometerDistance: rawPedometerDistance,
             latestPedometerEndDate: latestPedometerEndDate,
@@ -516,6 +566,10 @@ actor WalkMetricsEngine {
         elapsedDuration = checkpoint.elapsedDuration
         movingDuration = checkpoint.movingDuration
         pausedDuration = checkpoint.pausedDuration
+        pauseWindows = checkpoint.pauseWindows ?? []
+        currentPauseStart = checkpoint.recoveryState == .paused
+            ? checkpoint.lastCheckpointDate
+            : nil
         rawSteps = checkpoint.rawSteps
         rawPedometerDistance = checkpoint.rawPedometerDistance
         latestPedometerEndDate = checkpoint.latestPedometerEndDate
@@ -885,6 +939,9 @@ actor WalkMetricsEngine {
         isPaused = false
         elapsedDuration = 0
         movingDuration = 0
+        pauseWindows = []
+        currentPauseStart = nil
+        reconstructedMovingDuration = nil
         pausedDuration = 0
         rawSteps = nil
         rawPedometerDistance = nil

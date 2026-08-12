@@ -15,6 +15,15 @@ struct TrackingConfiguration: Equatable, Sendable {
     var elevationSmoothingFactor: Double = 0.25
     var elevationHysteresis: Double = 1
     var checkpointInterval: TimeInterval = 60
+    /// Bucket size for rebuilding moving time from pedometer history at
+    /// finalization (§ moving-time reconstruction).
+    var movingTimeBucket: TimeInterval = 60
+    /// Upper bound on the number of pedometer queries one reconstruction may
+    /// issue. Longer walks widen the bucket instead of issuing more queries.
+    var movingTimeMaximumBuckets = 180
+    /// Steps per second assumed for ordinary walking, used to convert a
+    /// bucket's step count into time spent walking. About 105 steps/minute.
+    var assumedWalkingCadence: Double = 1.75
     var trackPointBatchSize = 10
     var minimumFinishPromptWalkDuration: TimeInterval = 180
     var likelyStopWindow: TimeInterval = 180
@@ -101,6 +110,21 @@ struct WalkMetricsSnapshot: Equatable, Sendable {
         rejectedLocationCount: 0,
         isMoving: false
     )
+}
+
+/// Steps recorded over one wall-clock window, from `queryPedometerData`.
+///
+/// Live pedometer callbacks are irregular and stop entirely while the process
+/// is suspended, so moving time cannot be measured only by watching them
+/// arrive. This is the after-the-fact record used to rebuild it.
+struct PedometerInterval: Equatable, Sendable {
+    let interval: DateInterval
+    let steps: Int
+
+    init(interval: DateInterval, steps: Int) {
+        self.interval = interval
+        self.steps = max(0, steps)
+    }
 }
 
 struct PedometerSample: Codable, Equatable, Sendable {
