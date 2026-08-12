@@ -147,6 +147,19 @@ The accumulated-ascent total is therefore owned by the fusion engine, not by the
 
 Store the source values (`routeDistance`, `pedometerDistance`, `motionSteps`, `healthSteps`) and the selected value/source (`displayDistance`, `distanceSource`, `displaySteps`, `stepSource`). Selection is deterministic and testable. A later HealthKit refresh may enrich an existing record, but must not silently replace a good locally recorded value without applying the documented selection rule.
 
+### 6.6 Moving time reconstruction
+
+Moving time accrues live by sampling movement evidence: each tick adds its interval when a location fix or a step increase landed within `movementEvidenceInterval`. **This measures how often the evidence arrives, not how long the person walked.** `CMPedometer` callbacks are irregular and stop entirely while the process is suspended (§5.1), and GPS speed from a pocketed phone routinely fails the `speedAccuracy` gate, so evidence can arrive far less often than the freshness window consumes it. Observed in the field: a nine-minute walk with the phone in a back pocket recorded 35 seconds of moving time while its step count was correct.
+
+Steps are already reconciled after the fact against `queryPedometerData`. Moving time must be too:
+
+- At finalization, query pedometer history in buckets covering the whole walk, widening the bucket rather than exceeding a query cap on long walks.
+- Convert each bucket to time walking as `steps / assumedWalkingCadence`, capped at the bucket's own duration. A bucket with no steps contributes nothing.
+- Remove paused windows before conversion. The engine therefore retains pause *windows*, not only a paused-duration scalar, and carries them through checkpoint and restore.
+- Record `min(max(live, reconstructed), elapsed − paused)`. The live figure is kept where it is larger, because it is the only one that sees a walk with no step data at all; the clamp guarantees moving time can never exceed the time the walk was running and unpaused.
+
+The live display continues to show the sampled figure — it is honest about what is known second by second — and the saved walk carries the reconstructed one. Because eligibility for Progress (§15, Phase 6) requires a minimum moving duration, an under-counted moving time silently excludes real walks from every weekly total, streak, and personal best; that is the practical cost of getting this wrong.
+
 ## 7. User experience
 
 ### 7.1 App shell
@@ -603,6 +616,8 @@ Each phase ends in a usable, demonstrable build. The AI agent should not begin t
 | P4-04 | Pause briefly at traffic lights | The app does not complete the walk; movement resumes normally. |
 | P4-05 | Finish from the Lock Screen action | App finalizes once and opens the correct summary on next foreground. |
 | P4-06 | Force-terminate during a walk, then relaunch | App reports the recording gap and offers recovery; it does not invent route points. |
+| P4-07 | Walk 10 minutes with the phone in a pocket and the screen locked | Saved moving time is close to the walked time, not a fraction of it, and average speed is a plausible walking speed. The live figure may lag during the walk; the saved one may not (§6.6). |
+| P4-08 | Pause for two minutes mid-walk, walking during the pause | Paused time is excluded from moving time even though steps were recorded, and moving time never exceeds elapsed minus paused. |
 
 ### Phase 5 — Field quality, accessibility, privacy, and beta readiness
 
