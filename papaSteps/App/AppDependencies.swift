@@ -13,6 +13,7 @@ final class AppDependencies {
     let walkRepository: any WalkRepository
     let walkSessionStore: WalkSessionStore
     let walkHistoryStore: WalkHistoryStore
+    let tabRouter = AppTabRouter()
     let progressStore: ProgressStore
     let walkHealthStore: WalkHealthStore
     let healthWorkoutImportStore: HealthWorkoutImportStore

@@ -15,6 +15,8 @@ protocol WalkRepository: AnyObject {
     ) throws -> WalkEngineCheckpoint?
     func fetchSummaries() throws -> [WalkSummary]
     func fetchDetail(id: UUID) throws -> WalkDetail?
+    /// A route reduced to at most `maximumPoints`, for list thumbnails.
+    func fetchRoutePreview(id: UUID, maximumPoints: Int) throws -> [WalkCoordinate]
     func importedHealthWorkoutIDs(in ids: Set<UUID>) throws -> Set<UUID>
     @discardableResult
     func importHealthWorkout(
@@ -189,6 +191,31 @@ final class SwiftDataWalkRepository: WalkRepository {
             sortBy: [SortDescriptor(\.startDate, order: .reverse)]
         )
         return try context.fetch(descriptor).map(summary(from:))
+    }
+
+    func fetchRoutePreview(id: UUID, maximumPoints: Int) throws -> [WalkCoordinate] {
+        guard maximumPoints > 1, let record = try fetchRecord(id: id) else { return [] }
+
+        let points = record.trackPoints
+            .sorted { $0.timestamp < $1.timestamp }
+        guard points.count > 1 else {
+            return points.map { WalkCoordinate(latitude: $0.latitude, longitude: $0.longitude) }
+        }
+
+        let stride = max(1, points.count / maximumPoints)
+        var preview = points
+            .enumerated()
+            .filter { $0.offset.isMultiple(of: stride) }
+            .map { WalkCoordinate(latitude: $0.element.latitude, longitude: $0.element.longitude) }
+        // Keep the true end point: a thumbnail that stops short looks like a
+        // truncated walk.
+        if let last = points.last {
+            let endpoint = WalkCoordinate(latitude: last.latitude, longitude: last.longitude)
+            if preview.last != endpoint {
+                preview.append(endpoint)
+            }
+        }
+        return preview
     }
 
     func fetchDetail(id: UUID) throws -> WalkDetail? {

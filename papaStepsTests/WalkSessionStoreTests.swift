@@ -332,6 +332,10 @@ private final class RecordingWalkRepository: WalkRepository {
         drafts = [:]
     }
 
+    func fetchRoutePreview(id: UUID, maximumPoints: Int) throws -> [WalkCoordinate] {
+        []
+    }
+
     func fetchDetail(id: UUID) throws -> WalkDetail? {
         nil
     }

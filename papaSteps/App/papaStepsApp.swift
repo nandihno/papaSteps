@@ -66,6 +66,7 @@ struct AppRootView: View {
         AppTabView()
             .environment(dependencies.walkSessionStore)
             .environment(dependencies.walkHistoryStore)
+            .environment(dependencies.tabRouter)
             .environment(dependencies.progressStore)
             .environment(dependencies.walkHealthStore)
             .environment(dependencies.healthWorkoutImportStore)

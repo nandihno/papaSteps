@@ -26,12 +26,12 @@ struct MetricTile: View {
             Label(title, systemImage: systemImage)
                 .font(isCompact ? .caption.weight(.medium) : .metricTitle)
                 .foregroundStyle(Color.textSecondary)
-                .symbolRenderingMode(.hierarchical)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
 
             Text(value)
-                .font(isCompact ? .title3.weight(.semibold).monospacedDigit() : .metricValue)
+                .font(isCompact ? .title3.weight(.semibold) : .metricValue)
+                .monospacedDigit()
                 .foregroundStyle(valueColor)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
@@ -74,7 +74,8 @@ struct HeroMetric<Accessory: View>: View {
     var isStale = false
     @ViewBuilder let accessory: Accessory
 
-    @ScaledMetric(relativeTo: .largeTitle) private var valueSize: CGFloat = 60
+    /// Point size before Dynamic Type scaling, which `Font.heroMetric` applies.
+    private let valueSize: CGFloat = 60
 
     var body: some View {
         VStack(spacing: Spacing.xs) {
@@ -85,6 +86,7 @@ struct HeroMetric<Accessory: View>: View {
 
             Text(value)
                 .font(.heroMetric(size: valueSize))
+                .monospacedDigit()
                 .foregroundStyle(isStale ? Color.textSecondary : Color.textPrimary)
                 .minimumScaleFactor(0.5)
                 .lineLimit(1)
@@ -134,9 +136,10 @@ struct StatusChip: View {
         HStack(spacing: Spacing.xxs) {
             Image(systemName: systemImage)
                 .font(.caption.weight(.semibold))
-                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Color.textSecondary)
             Text(title)
                 .font(.caption.weight(.medium))
+                .foregroundStyle(Color.textPrimary)
             Text(state.shortDisplayName)
                 .font(.caption)
                 .foregroundStyle(state.signalColor)
@@ -169,7 +172,6 @@ struct SectionCard<Content: View>: View {
                 } icon: {
                     if let systemImage {
                         Image(systemName: systemImage)
-                            .symbolRenderingMode(.hierarchical)
                     }
                 }
                 .font(.sectionHeader)
@@ -199,5 +201,70 @@ private struct SectionCardSurface: ViewModifier {
         } else {
             content.cardSurface()
         }
+    }
+}
+
+/// Lays chips out left to right, wrapping to the next line when they run out of
+/// room. A horizontal scroll view would hide readiness state that the screen
+/// exists to report, and clip the last chip at the screen edge.
+struct WrappingChips: Layout {
+    var spacing: CGFloat = Spacing.xs
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        let rows = arrange(subviews: subviews, maxWidth: maxWidth)
+        let height = rows.reduce(into: 0.0) { total, row in
+            total += row.height + (total > 0 ? spacing : 0)
+        }
+        let width = rows.map(\.width).max() ?? 0
+        return CGSize(width: min(width, maxWidth), height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let rows = arrange(subviews: subviews, maxWidth: bounds.width)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrange(subviews: Subviews, maxWidth: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let needed = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if needed > maxWidth, !current.indices.isEmpty {
+                rows.append(current)
+                current = Row()
+            }
+            current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+            current.indices.append(index)
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
     }
 }

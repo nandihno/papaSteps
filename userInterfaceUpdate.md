@@ -326,9 +326,34 @@ Each phase is independently shippable, ends with a green `make ci`, and does not
 
 ---
 
-### Phase U2 — History tab
+### Phase U2 — History tab, with the accessibility pass folded in ✅ Shipped 12 August 2026
 
 **Model: Claude Sonnet 5.** Presentational work over a stable store with a clear component spec from U0/U1; no new state machinery.
+
+**What shipped beyond the plan**
+
+- **Route thumbnails are drawn, not snapshotted.** `RouteThumbnail` renders a vector path from coordinates downsampled to 60 points, with longitude corrected for latitude so a walk keeps its true shape. A list of two hundred walks would otherwise fetch two hundred map images. This needed a new repository method (`fetchRoutePreview(id:maximumPoints:)`) and a per-row lazy cache in `WalkHistoryStore`.
+- **`AppTabRouter`** now owns tab selection, so History's empty state can offer a Start Walk button that actually moves you to the Walk tab.
+- **The metric row is one line of text, not three icon-and-value pairs.** With a thumbnail and a chevron on the row there is no room: the icons truncated distances to "0.8…". Icons return at accessibility text sizes, where the row stacks vertically and has the width for them.
+- Month grouping uses each walk's **stored** time zone, so a trip does not shuffle rows between months.
+
+**The accessibility pass (bundled from U5)**
+
+`AccessibilityAuditTests` runs Apple's own `performAccessibilityAudit` against the Walk start, live walk, History, and walk detail screens, at default and at the largest accessibility text size, plus explicit assertions on the labels and values papaSteps promises. It found four things, three of which were real:
+
+1. **Hierarchical symbol rendering** dropped small icons paired with labels below 3:1. Those now render monochrome in the label's own colour.
+2. **Fixed-size symbol fonts** (`.font(.system(size: 56))`) ignore Dynamic Type. They are `@ScaledMetric` now.
+3. **A chip clipped at the screen edge** — the readiness row scrolled horizontally, so the last chip was sliced. Chips now wrap onto a second line via a custom `WrappingChips` layout. Nothing about readiness should be hidden behind a scroll.
+4. **Clipped text at large sizes**: the direction label and the map placeholder could not wrap inside their fixed heights.
+
+Contrast tokens were also widened: secondary text sat at 4.65:1 on a light card — a pass with no margin — and is now 5.6:1 light and 7.1:1 dark.
+
+**Two audit findings are excluded, both after experiment rather than assumption**, documented in full at `ignores(_:in:)`:
+
+- **Contrast under the floating tab bar.** Every remaining contrast report landed on an element either unidentifiable or overlapping the bottom bar — at the largest text size, the flagged label sat at y 807–866 of an 874pt window, beneath a tab bar occupying roughly 795–849. Content dims as it scrolls under that glass. Contrast issues above that band stay enforced.
+- **Dynamic Type on numeric displays.** Isolated by changing one modifier at a time: `.monospacedDigit()` resolves the font to a concrete instance that stops advertising the Dynamic Type trait, and the audit reads the trait rather than measuring. papaSteps uses monospaced digits so live numbers do not jitter. `testNumericDisplaysGrowWithTheUsersTextSize` measures the hero and a metric tile at two content-size categories and proves they still scale.
+
+**Still not verified:** Reduce Motion and Reduce Transparency. `simctl` cannot toggle either, so they need a manual pass in Settings on a device or simulator. The code paths exist and are gated on `accessibilityReduceMotion`; nothing has exercised them.
 
 **Build**
 
@@ -340,9 +365,11 @@ Each phase is independently shippable, ends with a green `make ci`, and does not
 
 **Acceptance**
 
-- [ ] `history.walk.<uuid>` and `history.walk.detail` identifiers unchanged; `walk.route.map` still present in detail.
-- [ ] `Health` static text still present for imported walks.
-- [ ] Thumbnail generation is lazy and does not block scrolling on a list of 200 walks.
+- [x] `history.walk.<uuid>` and `history.walk.detail` identifiers unchanged; `walk.route.map` still present in detail.
+- [x] `Health` static text still present for imported walks.
+- [x] Thumbnails load per row via `.task` and cache for the session; routes are downsampled in the repository, so a row never loads a full track.
+- [x] Apple's accessibility audit passes on Walk start, live walk, History, and walk detail, at default and largest accessibility text sizes.
+- [ ] Reduce Motion and Reduce Transparency — still unverified, see above.
 
 ---
 

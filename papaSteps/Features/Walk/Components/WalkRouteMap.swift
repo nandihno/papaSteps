@@ -92,13 +92,21 @@ struct WalkRouteMap: View {
                 .accessibilityLabel(mapAccessibilityLabel)
             }
         }
-        .frame(height: mapHeight)
+        // The placeholder must be free to grow: at large text sizes its
+        // explanation clips inside a fixed height. A rendered map keeps its
+        // fixed height.
+        .frame(height: hasRoute ? mapHeight : nil)
+        .frame(minHeight: hasRoute ? nil : mapHeight)
         .clipShape(.rect(cornerRadius: Radius.map, style: .continuous))
         .accessibilityIdentifier("walk.route.map")
     }
 
+    private var hasRoute: Bool {
+        !coordinates.isEmpty || currentCoordinate != nil
+    }
+
     private var mapHeight: CGFloat {
-        if coordinates.isEmpty, currentCoordinate == nil { return 150 }
+        guard hasRoute else { return 150 }
         return followsCurrentLocation ? 260 : 300
     }
 

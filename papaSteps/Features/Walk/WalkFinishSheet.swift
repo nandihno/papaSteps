@@ -3,6 +3,7 @@ import SwiftUI
 struct WalkFinishSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isConfirmingDiscard = false
+    @ScaledMetric(relativeTo: .largeTitle) private var symbolSize: CGFloat = 64
 
     let store: WalkSessionStore
 
@@ -10,7 +11,7 @@ struct WalkFinishSheet: View {
         NavigationStack {
             VStack(spacing: 20) {
                 Image(systemName: WalkSymbol.finishPrompt)
-                    .font(.system(size: 64))
+                    .font(.system(size: symbolSize))
                     .foregroundStyle(Color.brandGreenInk)
                     .accessibilityHidden(true)
 

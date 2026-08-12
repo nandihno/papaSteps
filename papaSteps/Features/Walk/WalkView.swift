@@ -26,6 +26,8 @@ struct WalkView: View {
     @State private var isConfirmingFailureDiscard = false
     @State private var explanation: CapabilityExplanation?
     @Namespace private var walkNamespace
+    @ScaledMetric(relativeTo: .largeTitle) private var brandSymbolSize: CGFloat = 56
+    @ScaledMetric(relativeTo: .largeTitle) private var savedSymbolSize: CGFloat = 44
 
     var body: some View {
         Group {
@@ -149,7 +151,7 @@ struct WalkView: View {
     private var startHeader: some View {
         VStack(alignment: .leading, spacing: Spacing.small) {
             Image(systemName: WalkSymbol.walkCircle)
-                .font(.system(size: 56))
+                .font(.system(size: brandSymbolSize))
                 .foregroundStyle(Color.brandGreenInk)
                 .accessibilityHidden(true)
 
@@ -167,8 +169,8 @@ struct WalkView: View {
             Text("Readiness")
                 .font(.sectionHeader)
 
-            ScrollView(.horizontal) {
-                HStack(spacing: Spacing.xs) {
+            WrappingChips {
+                Group {
                     StatusChip(
                         title: "Motion",
                         state: sessionStore.permissionSnapshot.motionAuthorization,
@@ -216,9 +218,7 @@ struct WalkView: View {
                         )
                     }
                 }
-                .padding(.horizontal, 1)
             }
-            .scrollIndicators(.hidden)
 
             if let explanation {
                 SectionCard(
@@ -345,7 +345,6 @@ struct WalkView: View {
                 .foregroundStyle(Color.textPrimary)
         } icon: {
             Image(systemName: symbol)
-                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.brandGreenInk)
                 .frame(width: 22)
         }
@@ -472,7 +471,7 @@ struct WalkView: View {
     private var completedHeader: some View {
         HStack(spacing: Spacing.small) {
             Image(systemName: WalkSymbol.good)
-                .font(.system(size: 44))
+                .font(.system(size: savedSymbolSize))
                 .foregroundStyle(Color.signalGood)
                 .accessibilityHidden(true)
 
@@ -573,6 +572,8 @@ private struct LiveWalkContent: View {
     let store: WalkSessionStore
     let namespace: Namespace.ID
 
+    @ScaledMetric(relativeTo: .largeTitle) private var directionSymbolSize: CGFloat = 40
+
     private var metrics: WalkMetricsSnapshot { store.metrics }
 
     var body: some View {
@@ -605,7 +606,6 @@ private struct LiveWalkContent: View {
     private var statusPill: some View {
         HStack(spacing: Spacing.xs) {
             Image(systemName: WalkSymbol.recording)
-                .symbolRenderingMode(.hierarchical)
             Text(headerStatus)
                 .font(.subheadline.weight(.semibold))
         }
@@ -635,19 +635,25 @@ private struct LiveWalkContent: View {
         VStack(spacing: Spacing.xs) {
             RecordingRing(state: ringState) {
                 Image(systemName: WalkSymbol.direction)
-                    .font(.system(size: 40, weight: .semibold))
+                    .font(.system(size: directionSymbolSize, weight: .semibold))
                     .foregroundStyle(directionIsStale ? Color.textSecondary : Color.brandGreen)
                     .rotationEffect(.degrees(metrics.direction.value ?? 0))
                     .animation(.easeInOut(duration: 0.3), value: metrics.direction.value)
-                    .frame(width: 52, height: 52)
+                    .frame(width: directionSymbolSize + 12, height: directionSymbolSize + 12)
             }
 
             Text(directionLabel)
-                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .monospacedDigit()
                 .foregroundStyle(directionIsStale ? Color.signalCaution : Color.textSecondary)
-                .lineLimit(1)
+                // No line limit: "No heading yet" is clipped at large text sizes
+                // when it cannot wrap. The audit caught this.
+                .multilineTextAlignment(.center)
         }
-        .accessibilityElement()
+        // `.accessibilityElement()` alone replaces the children with a synthetic
+        // node, and the audit then cannot see that the text inside scales.
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("Direction of travel")
         .accessibilityValue(
             "\(WalkMetricFormatting.direction(metrics.direction.value)). \(WalkMetricFormatting.detail(for: metrics.direction.availability))"

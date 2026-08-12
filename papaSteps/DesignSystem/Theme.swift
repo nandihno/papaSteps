@@ -47,10 +47,10 @@ enum PapaPalette {
 
     static let textPrimary = dynamic(light: 0x0B0B0C, dark: 0xFFFFFF)
     static let textSecondary = dynamic(
-        light: 0x6B7078,
-        dark: 0x8A8F98,
-        highContrastLight: 0x4E535A,
-        highContrastDark: 0xA8ADB5
+        light: 0x5E636B,
+        dark: 0x9AA0A9,
+        highContrastLight: 0x474C53,
+        highContrastDark: 0xB4B9C1
     )
     static let textTertiary = dynamic(light: 0x8A8F98, dark: 0x6B7078)
 
@@ -172,14 +172,20 @@ enum Radius {
 }
 
 extension Font {
-    /// Large single-value display. Scales with Dynamic Type via `@ScaledMetric`
-    /// at the call site.
+    /// Large single-value display, scaled through `UIFontMetrics` so it grows
+    /// with the user's text size and reports itself as scalable.
     static func heroMetric(size: CGFloat) -> Font {
-        .system(size: size, weight: .semibold, design: .rounded).monospacedDigit()
+        let base = UIFont.systemFont(ofSize: size, weight: .semibold)
+        let rounded = base.fontDescriptor.withDesign(.rounded)
+            .map { UIFont(descriptor: $0, size: size) } ?? base
+        let scaled = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: rounded)
+        return Font(scaled)
     }
 
-    /// Value inside a metric card.
-    static let metricValue = Font.title2.weight(.semibold).monospacedDigit()
+    /// Value inside a metric card. Apply `.monospacedDigit()` as a *view*
+    /// modifier at the call site: applying it to the `Font` resolves it to a
+    /// concrete font that no longer scales with Dynamic Type.
+    static let metricValue = Font.title2.weight(.semibold)
     /// Label above a metric value.
     static let metricTitle = Font.footnote.weight(.medium)
     /// Provenance or availability line below a metric value.
