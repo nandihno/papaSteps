@@ -100,10 +100,12 @@ All numerical thresholds below must live in a central `TrackingConfiguration`, b
 
 A location point is eligible only when:
 
-- its timestamp is recent enough for the current processing window;
-- `horizontalAccuracy` is non-negative and within the configured maximum (initial field-test value: 50 m, with a tighter preference near 20–25 m);
+- its timestamp falls within the active walk and is not in the future; delayed background batches remain eligible and are processed in timestamp order;
+- `horizontalAccuracy` is non-negative and within a 50 m outer ceiling. Fixes at or below the 20 m preferred threshold support `good` quality; usable 20–50 m fixes are retained but contribute to `degraded` route quality rather than leaving an empty route;
 - it does not imply an impossible walking jump relative to the prior accepted point; and
 - its timestamp is later than the prior accepted point.
+
+Every location in a Core Location callback batch must be processed. An isolated accuracy rejection keeps the last accepted anchor so the next plausible fix can bridge a brief signal disturbance. An impossible-jump rejection retires the old anchor and enters GPS reacquisition: hold the next eligible fix provisionally, require a second timely fix whose displacement implies a plausible walking speed, then accept both as the start of a new route segment. If confirmation fails, reject the older provisional fix and treat the newer fix as the next candidate. Never add distance from the old segment across this recovery boundary. A gap beyond the configured maximum starts a new route segment without inventing distance across the missing interval.
 
 Keep enough information to calculate a route quality result such as `good`, `degraded`, or `unavailable`. Track coverage duration, accepted/rejected point counts, median horizontal accuracy, and the longest gap. Apple recommends filtering inaccurate route locations and keeping useful route samples no more than roughly three seconds apart when possible.
 

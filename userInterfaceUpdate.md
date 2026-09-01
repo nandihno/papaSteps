@@ -373,9 +373,18 @@ Contrast tokens were also widened: secondary text sat at 4.65:1 on a light card 
 
 ---
 
-### Phase U3 — Progress tab
+### Phase U3 — Progress tab ✅ Shipped 12 August 2026
 
 **Model: Claude Sonnet 5 for layout; escalate the chart work to Opus 5 if Swift Charts styling fights the accessibility descriptors.** Mostly composition, but the comparison copy needs care (today it says "100% down · 18.8 km", which reads as a failure message).
+
+**What shipped, and where it differs from the plan above**
+
+- **"This week" is Hero (distance) + a `WalkMetricGrid` of three `MetricTile`s** (moving time, steps, elevation), not four equal-weight tiles. `MetricTile.Size` only ships `.standard` and `.compact` — U0 never added the `.prominent` case §5 anticipated — and principle 1 in §3 names weekly distance as the one number this screen is about, so it takes the hero slot the way distance already does on the Completed and walk-detail screens. `WalkMetricCard` is now fully retired from Progress (History retired it in U2); it remains only in `HealthInsightSection.swift`, which is U4 scope.
+- **`DeltaBadge` phrases every comparison as a percentage** ("▲ 12% ahead of your 4-week average", "Even with your best week"), rather than the absolute-difference wording the §2.3 example used for best-week specifically. A percentage reads correctly for all four metrics (steps and elevation gain have no natural "X km" phrasing); a per-kind special case would have made the component metric-aware for no real benefit. Direction is colored `signalGood` (ahead), `signalCaution` (behind), or neutral (even / not enough history) — never conveyed by color alone, the arrow and words carry it too.
+- **Goals render as a fill ring with a checkmark on completion**, built as a local `GoalRingRow` (not a shared component — §5 only asked for "ring progress," not a named type). The two existing goals (distance, steps) are unchanged; no new goal metrics were added.
+- **Achievements is now a fixed 3-column grid of every `ProgressBadge` case**, earned or not. Locked badges stay visible at reduced opacity with their unlock condition as the caption, replacing the old "Complete an eligible walk to begin earning achievements." empty-state line entirely — there is no longer an empty state for this section, since all three badges are always shown.
+- **Fixed a real bug in the chart's week selection while restyling it.** `chartWeeks` was `Array(snapshot.weeklyAggregates.reversed().prefix(8))` — since `weeklyAggregates` is sorted newest-first, reversing then taking a prefix returned the *oldest* eight weeks of a user's history, not the most recent eight. The chart now takes the most recent weeks (up to 52), renders them oldest-to-newest, and is horizontally scrollable (`chartScrollableAxes` + `chartXVisibleDomain(length: 8)`) with the scroll position initialized so the current week is on screen by default instead of flashing the oldest data first.
+- **The y-axis now plots the user's distance-unit preference** (km or mi, converted per bar) instead of raw meters under a "km"-implying heading, and the axis labels carry the unit. Bars are corner-rounded, sit on a `surfaceSunken` plot background, and the current week renders at full `brandGreen` opacity against 45% for every other week — all per §6's build note, verified in both appearances with seeded multi-week fixture data.
 
 **Build**
 
@@ -389,29 +398,35 @@ Contrast tokens were also widened: secondary text sat at 4.65:1 on a light card 
 
 **Acceptance**
 
-- [ ] `progress.dashboard` and `progress.weeklyDistance.chart` identifiers unchanged; "No Eligible Walks Yet" string preserved or the UI test updated in the same commit.
-- [ ] Chart axis units match the user's distance-unit preference and update when it changes.
-- [ ] Chart has an accessible representation for every bar (existing `accessibilityLabel`/`accessibilityValue` preserved).
+- [x] `progress.dashboard` and `progress.weeklyDistance.chart` identifiers unchanged; "No Eligible Walks Yet" string preserved (unchanged this phase — no UI test needed updating).
+- [x] Chart axis units match the user's distance-unit preference and update when it changes (reads live from `WalkDisplayPreferences` via the existing `configuration` plumbing).
+- [x] Chart has an accessible representation for every bar (existing `accessibilityLabel`/`accessibilityValue` preserved, unchanged).
+
+**Verified:** `make ci` green (build, release-build, unit tests, UI tests). Visually reviewed in both appearances with seeded four-week fixture data covering a completed goal ring, an in-progress case, an earned and a locked badge, and all three comparison directions (ahead/behind/even) — screenshots not committed, QA-only.
+
+**Not yet verified:** Dynamic Type at accessibility sizes and VoiceOver phrasing for the new ring and badge grid — deferred to U5 alongside the rest of the cross-cutting audit, consistent with the sequencing in §10.
 
 ---
 
-### Phase U4 — Settings, permissions, diagnostics, and Live Activity
+### Phase U4 — Settings, permissions, diagnostics, and Live Activity ✅ Shipped 12 August 2026
 
 **Model: Claude Sonnet 5 for the forms; Claude Haiku 4.5 for the mechanical symbol/token substitutions once the pattern is set.**
 
-**Build**
+**What shipped, and where it differs from the plan above**
 
-- Walk-tab toolbar: replace three ambiguous glyphs with a single "Settings" entry point (`ToolbarSpacer` separating it from anything else), with Health and Diagnostics as rows inside — diagnostics remains `#if DEBUG`.
-- Settings forms: grouped sections with symbol-led rows, plain-language footers, and the new tokens; unit and pace pickers get inline previews of the resulting format.
-- Permission sheet: one card per capability with symbol, what it enables, and what still works without it; primary action as a green capsule. Keep "Prepare Your Walk" title and `walk.permissions.continue` identifier.
-- Sensor diagnostics: keep the green-check clarity; apply tokens and plain-English capability names.
-- Privacy/data management: destructive actions in `signalAlert` with unchanged confirmation copy (deletion wording is a spec contract, §7.4).
-- Live Activity and Dynamic Island: apply the green-on-black identity, keep the same metrics and intents.
+- **No `ToolbarSpacer`.** The three toolbar items collapsed to exactly one ("Settings"), so there is nothing left to visually separate it from. `WalkSettingsView` is a plain `Form` with "Walk Recording" and "Apple Health" rows, plus a `#if DEBUG` "Sensor Diagnostics" section with a footer explaining it is debug-only — matching the sub-screens' own `Form` idiom rather than inventing a card-based menu.
+- **`Theme.swift` and `WalkSymbol.swift` moved from `papaSteps/DesignSystem/` to `Shared/DesignSystem/`.** Neither file was reachable from the `papaStepsLiveActivity` extension target before this phase — the Live Activity's colors and icons were plain system values entirely outside the design system. Moving just the two token files (not the SwiftUI view components, which the widget doesn't need) makes them visible to both targets via Xcode's synchronized-group membership, with zero import changes required anywhere in the app, since Swift visibility is target-based rather than path-based.
+- **`WalkPermissionSheet`'s primary action moved out of the `List`** into a `.safeAreaInset(edge: .bottom)` bar so `.buttonStyle(.primaryWalk)` renders as the same full-width green capsule used for Start Walk, rather than an odd capsule squeezed into a Form row. Each capability row also gained a one-line "Without it: …" caption, satisfying the "what still works without it" build note without restructuring the List into free-form cards — a lower-risk change to a delicate, well-tested permission flow.
+- **Found and fixed a leftover from U0's icon/color audit while touching `HealthWorkoutImportView.swift`**, a screen none of U0–U3 had reason to open: a literal `"ruler"` icon (the exact one §4.4 replaced everywhere else with `WalkSymbol.distance`), plus `.green`/`.accentColor`/`.secondary` instead of `signalGood`/`brandGreenInk`/`textSecondary`. Also moved "No Walking Workouts" to sentence case, matching §2.3 (not test-asserted, so free to change).
+- **Live Activity retint reused the existing semantic mapping** established for `RecordingRingState` and `signalCaution`/`signalAlertFill` rather than inventing new rules: active → `brandGreen`, paused/finish-candidate → `signalCaution`, completed → `signalGood`, interrupted → `signalAlert`, finish button → `signalAlertFill` (chosen specifically because its doc comment guarantees a readable white label, unlike a plain `signalAlert` tint). The two buttons now tinted `brandGreen` (Resume, Keep Walking) got an explicit `.foregroundStyle(Color.onBrandGreen)` — `Theme.swift`'s own comment documents that white-on-`brandGreen` is ~1.6:1 and unreadable, and `.borderedProminent`'s default label color doesn't auto-correct for a light tint, so this would have silently reproduced a contrast bug the team had already found and fixed elsewhere. `activityBackgroundTint` also moved from a near-invisible `.black.opacity(0.08)` to `Color.surfaceBase.opacity(0.2)`, a modest, adaptive nod to "black is a material" without fighting the system's required Lock Screen translucency.
+- **Destructive delete-all button** in `PrivacyDataManagementView` kept `role: .destructive` (for VoiceOver/haptic semantics) and added `.foregroundStyle(Color.signalAlert)` alongside it, rather than replacing the role — the confirmation-dialog buttons were left on system styling since `foregroundStyle` has no effect on action-sheet-style destructive buttons.
 
 **Acceptance**
 
-- [ ] `walk.health.settings`, `walk.diagnostics`, `walk.recording.settings`, `health.connect`, `health.import.*` identifiers all still resolvable — the toolbar consolidation must preserve them or the tests move in the same commit.
-- [ ] Live Activity still renders within its size budget on the Lock Screen and in both Dynamic Island presentations.
+- [x] `walk.health.settings`, `walk.diagnostics`, `walk.recording.settings`, `health.connect`, `health.import.*` identifiers all still resolvable. The toolbar consolidation moved `walk.health.settings`, `walk.recording.settings`, and `walk.diagnostics` one level deeper (behind a new `walk.settings` entry point) and the three affected UI tests were updated in this commit to navigate through it first.
+- [x] Live Activity still renders within its size budget — verified by successful build and embedding of `papaStepsLiveActivity.appex` with no layout-affecting changes (only colors, icons, and label casing changed; no frames, paddings, or view structure). A live on-device/simulator Lock Screen and Dynamic Island visual check was not completed this phase — the simulator's manual input became unresponsive during QA (a tooling issue, not a build issue); this is worth a follow-up pass, ideally folded into U5 since it needs a real device or a working simulator session either way.
+
+**Verified:** `make ci` green (build — including the widget extension target — release-build, unit tests, all 15 UI tests). `grep -rho 'accessibilityIdentifier("[^"]*")' papaSteps` shows the identifier set only grew (added `walk.settings`). Settings screen visually confirmed on-device (dark mode) showing the consolidated menu with correct tokens; deeper screens (Apple Health, Sensor Diagnostics, permission sheet, Live Activity) verified via passing automated UI tests and code review, not fresh screenshots, once the simulator stopped responding to manual taps.
 
 ---
 
