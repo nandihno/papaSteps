@@ -27,6 +27,7 @@ enum WalkSymbol {
     static let recording = "record.circle"
 
     // Actions and navigation
+    static let disclosure = "chevron.right"
     static let walk = "figure.walk"
     static let walkCircle = "figure.walk.circle.fill"
     static let start = "figure.walk.departure"
@@ -38,6 +39,7 @@ enum WalkSymbol {
     static let diagnostics = "stethoscope"
     static let refresh = "arrow.clockwise"
     static let importWorkouts = "square.and.arrow.down"
+    static let privacy = "hand.raised.fill"
 
     // Status
     static let good = "checkmark.circle.fill"
