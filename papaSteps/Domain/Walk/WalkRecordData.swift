@@ -334,15 +334,25 @@ struct WalkDetail: Identifiable, Equatable, Sendable {
     }
 
     var routeSegments: [[WalkCoordinate]] {
-        trackPoints
-            .filter(\.isAccepted)
-            .reduce(into: [[WalkCoordinate]]()) { segments, point in
-                if point.startsNewSegment || segments.isEmpty {
-                    segments.append([point.coordinate])
-                } else {
-                    segments[segments.count - 1].append(point.coordinate)
-                }
+        // A stored flag marks a break the recorder saw at the time. The gap is
+        // re-checked here as well so a pause is never drawn as a straight line
+        // across, including in walks saved before imports detected gaps.
+        let maximumRouteGap = TrackingConfiguration().maximumRouteGap
+        var segments: [[WalkCoordinate]] = []
+        var previousTimestamp: Date?
+        for point in trackPoints where point.isAccepted {
+            let breaksHere = point.startsNewSegment
+                || previousTimestamp.map {
+                    point.timestamp.timeIntervalSince($0) > maximumRouteGap
+                } ?? true
+            if breaksHere || segments.isEmpty {
+                segments.append([point.coordinate])
+            } else {
+                segments[segments.count - 1].append(point.coordinate)
             }
+            previousTimestamp = point.timestamp
+        }
+        return segments
     }
 
     var healthInput: HealthWalkInput? {
@@ -400,6 +410,10 @@ struct WalkEngineCheckpoint: Codable, Equatable, Sendable {
     let locationUnavailableReason: String?
     let routeSegmentStartPending: Bool
     let trackPoints: [NewTrackPoint]
+    /// Optional for compatibility with checkpoints written before GPS
+    /// reacquisition state was persisted.
+    var requiresLocationReacquisition: Bool? = nil
+    var locationReacquisitionCandidate: WalkLocationSample? = nil
 
     let smoothedSpeed: Double?
     let maximumSustainedSpeed: Double?
@@ -465,6 +479,8 @@ struct WalkEngineCheckpoint: Codable, Equatable, Sendable {
             locationUnavailableReason: nil,
             routeSegmentStartPending: true,
             trackPoints: [],
+            requiresLocationReacquisition: nil,
+            locationReacquisitionCandidate: nil,
             smoothedSpeed: nil,
             maximumSustainedSpeed: nil,
             lastSpeedDate: nil,

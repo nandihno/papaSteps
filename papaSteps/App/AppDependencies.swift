@@ -13,12 +13,14 @@ final class AppDependencies {
     let walkRepository: any WalkRepository
     let walkSessionStore: WalkSessionStore
     let walkHistoryStore: WalkHistoryStore
-    let tabRouter = AppTabRouter()
+    let tabRouter: AppTabRouter
     let progressStore: ProgressStore
     let walkHealthStore: WalkHealthStore
     let healthWorkoutImportStore: HealthWorkoutImportStore
+    let healthWorkoutAutoImporter: HealthWorkoutAutoImporter
     let walkDisplayPreferences: WalkDisplayPreferences
     let activityActionHandler: WalkActivityActionHandler?
+    let startWalkActionHandler: WalkStartActionHandler?
 #if DEBUG
     let sensorDiagnosticsStore: SensorDiagnosticsStore
 #endif
@@ -29,8 +31,11 @@ final class AppDependencies {
         walkSessionStore: WalkSessionStore,
         walkHealthStore: WalkHealthStore,
         healthWorkoutImportStore: HealthWorkoutImportStore,
+        healthWorkoutAutoImporter: HealthWorkoutAutoImporter,
+        tabRouter: AppTabRouter = AppTabRouter(),
         walkDisplayPreferences: WalkDisplayPreferences = WalkDisplayPreferences(),
         activityActionHandler: WalkActivityActionHandler? = nil,
+        startWalkActionHandler: WalkStartActionHandler? = nil,
         sensorDiagnosticsStore: SensorDiagnosticsStore? = nil
     ) {
         self.modelContainer = modelContainer
@@ -38,10 +43,21 @@ final class AppDependencies {
         self.walkSessionStore = walkSessionStore
         self.walkHealthStore = walkHealthStore
         self.healthWorkoutImportStore = healthWorkoutImportStore
+        self.healthWorkoutAutoImporter = healthWorkoutAutoImporter
+        self.tabRouter = tabRouter
         self.walkDisplayPreferences = walkDisplayPreferences
         self.activityActionHandler = activityActionHandler
-        walkHistoryStore = WalkHistoryStore(repository: walkRepository)
-        progressStore = ProgressStore(repository: walkRepository)
+        self.startWalkActionHandler = startWalkActionHandler
+        let historyStore = WalkHistoryStore(repository: walkRepository)
+        let progressStore = ProgressStore(repository: walkRepository)
+        walkHistoryStore = historyStore
+        self.progressStore = progressStore
+        // A background auto-import can land while History is already on screen,
+        // so refresh the derived stores rather than waiting for a scene change.
+        healthWorkoutAutoImporter.onWalksImported = { [weak historyStore, weak progressStore] in
+            historyStore?.load()
+            progressStore?.refresh()
+        }
 #if DEBUG
         guard let sensorDiagnosticsStore else {
             preconditionFailure("Debug builds require sensor diagnostics dependencies.")
@@ -54,10 +70,17 @@ final class AppDependencies {
         let modelContainer = try PersistenceContainer.make()
         let repository = SwiftDataWalkRepository(modelContainer: modelContainer)
         let healthClient = LiveHealthCapabilityClient()
+        let healthPreferences = LiveHealthPreferences()
         let walkHealthStore = WalkHealthStore(
             client: healthClient,
-            preferences: LiveHealthPreferences(),
+            preferences: healthPreferences,
             repository: repository
+        )
+        let autoImporter = HealthWorkoutAutoImporter(
+            client: healthClient,
+            repository: repository,
+            healthStore: walkHealthStore,
+            preferences: healthPreferences
         )
         let motionClient = LiveMotionCapabilityClient()
         let locationClient = LiveLocationCapabilityClient()
@@ -82,6 +105,16 @@ final class AppDependencies {
         )
         storeReference.store = walkSessionStore
         AppDependencyManager.shared.add(dependency: actionHandler)
+
+        let tabRouter = AppTabRouter()
+        let startHandler = WalkStartActionHandler {
+            guard walkSessionStore.state == .idle else { return .alreadyInProgress }
+            guard !walkSessionStore.needsPermissionExplanation else { return .needsPermissionSetup }
+            tabRouter.select(.walk)
+            await walkSessionStore.start(requestPermissions: false)
+            return .started
+        }
+        AppDependencyManager.shared.add(dependency: startHandler)
 #if DEBUG
         let sensorDiagnosticsStore = SensorDiagnosticsStore(
             motionClient: motionClient,
@@ -92,7 +125,7 @@ final class AppDependencies {
         let sensorDiagnosticsStore: SensorDiagnosticsStore? = nil
 #endif
 
-        return AppDependencies(
+        let dependencies = AppDependencies(
             modelContainer: modelContainer,
             walkRepository: repository,
             walkSessionStore: walkSessionStore,
@@ -102,9 +135,16 @@ final class AppDependencies {
                 repository: repository,
                 healthStore: walkHealthStore
             ),
+            healthWorkoutAutoImporter: autoImporter,
+            tabRouter: tabRouter,
             activityActionHandler: actionHandler,
+            startWalkActionHandler: startHandler,
             sensorDiagnosticsStore: sensorDiagnosticsStore
         )
+        // Registered here rather than from a view: a HealthKit background launch
+        // wakes the app without necessarily rendering a scene.
+        autoImporter.activate()
+        return dependencies
     }
 
     static func preview() throws -> AppDependencies {
@@ -125,9 +165,10 @@ final class AppDependencies {
         healthClient.walkingWorkoutCandidates = [healthWorkout]
         healthClient.walkingWorkoutImports[healthWorkout.id] =
             HealthWalkingWorkoutImport(workout: healthWorkout, routePoints: [])
+        let healthPreferences = FakeHealthPreferences()
         let walkHealthStore = WalkHealthStore(
             client: healthClient,
-            preferences: FakeHealthPreferences(),
+            preferences: healthPreferences,
             repository: repository
         )
         let motionClient = FakeMotionCapabilityClient()
@@ -160,6 +201,12 @@ final class AppDependencies {
                 repository: repository,
                 healthStore: walkHealthStore
             ),
+            healthWorkoutAutoImporter: HealthWorkoutAutoImporter(
+                client: healthClient,
+                repository: repository,
+                healthStore: walkHealthStore,
+                preferences: healthPreferences
+            ),
             sensorDiagnosticsStore: sensorDiagnosticsStore
         )
     }
@@ -186,9 +233,10 @@ final class AppDependencies {
         healthClient.walkingWorkoutCandidates = [healthWorkout]
         healthClient.walkingWorkoutImports[healthWorkout.id] =
             HealthWalkingWorkoutImport(workout: healthWorkout, routePoints: [])
+        let healthPreferences = FakeHealthPreferences()
         let walkHealthStore = WalkHealthStore(
             client: healthClient,
-            preferences: FakeHealthPreferences(),
+            preferences: healthPreferences,
             repository: repository
         )
         if recoverableDraft {
@@ -233,6 +281,12 @@ final class AppDependencies {
                 client: healthClient,
                 repository: repository,
                 healthStore: walkHealthStore
+            ),
+            healthWorkoutAutoImporter: HealthWorkoutAutoImporter(
+                client: healthClient,
+                repository: repository,
+                healthStore: walkHealthStore,
+                preferences: healthPreferences
             ),
             sensorDiagnosticsStore: sensorDiagnosticsStore
         )

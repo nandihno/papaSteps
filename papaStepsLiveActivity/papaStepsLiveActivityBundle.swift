@@ -14,14 +14,14 @@ struct WalkLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: WalkActivityAttributes.self) { context in
             WalkLockScreenView(context: context)
-                .activityBackgroundTint(.black.opacity(0.08))
+                .activityBackgroundTint(Color.surfaceBase.opacity(0.2))
                 .activitySystemActionForegroundColor(.primary)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "figure.walk.motion")
+                    Image(systemName: WalkSymbol.motion)
                         .font(.title2)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Color.brandGreen)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     elapsedTime(context: context)
@@ -63,10 +63,10 @@ struct WalkLiveActivityWidget: Widget {
                     .frame(width: 46)
                     .monospacedDigit()
             } minimal: {
-                Image(systemName: "figure.walk")
-                    .foregroundStyle(.blue)
+                Image(systemName: WalkSymbol.walk)
+                    .foregroundStyle(Color.brandGreen)
             }
-            .keylineTint(.blue)
+            .keylineTint(Color.brandGreen)
         }
     }
 
@@ -76,7 +76,7 @@ struct WalkLiveActivityWidget: Widget {
                 .font(.headline.monospacedDigit())
             Text(label)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.textSecondary)
         }
     }
 
@@ -100,9 +100,9 @@ private struct WalkLockScreenView: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Label("papaSteps", systemImage: "figure.walk.motion")
+                Label("papaSteps", systemImage: WalkSymbol.motion)
                     .font(.headline)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Color.brandGreenInk)
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(context.state.status.title)
@@ -115,16 +115,16 @@ private struct WalkLockScreenView: View {
             if context.isStale {
                 Label("Metrics will refresh when papaSteps can run", systemImage: "clock.badge.exclamationmark")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             HStack {
-                metric(context.state.steps.map(String.init) ?? "—", label: "Steps")
+                metric(context.state.steps.map(String.init) ?? "—", label: "steps")
                 Spacer()
-                metric(distanceText, label: "Distance")
+                metric(distanceText, label: "distance")
                 Spacer()
-                metric(durationText, label: "Moving")
+                metric(durationText, label: "moving")
             }
 
             WalkActivityActionButtons(
@@ -170,7 +170,7 @@ private struct WalkLockScreenView: View {
                 .font(.headline.monospacedDigit())
             Text(label)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.textSecondary)
         }
     }
 }
@@ -200,19 +200,21 @@ private struct WalkActivityActionButtons: View {
                 Button(intent: PauseWalkIntent(walkID: walkID)) {
                     Label("Pause", systemImage: "pause.fill")
                 }
-                .tint(.orange)
+                .tint(Color.signalCaution)
                 finishButton
             case .paused:
                 Button(intent: ResumeWalkIntent(walkID: walkID)) {
                     Label("Resume", systemImage: "play.fill")
                 }
-                .tint(.green)
+                .tint(Color.brandGreen)
+                .foregroundStyle(Color.onBrandGreen)
                 finishButton
             case .finishCandidate:
                 Button(intent: KeepWalkingIntent(walkID: walkID)) {
-                    Label("Keep Walking", systemImage: "figure.walk")
+                    Label("Keep Walking", systemImage: WalkSymbol.walk)
                 }
-                .tint(.blue)
+                .tint(Color.brandGreen)
+                .foregroundStyle(Color.onBrandGreen)
                 finishButton
             case .finalizing, .completed, .interrupted:
                 EmptyView()
@@ -226,7 +228,7 @@ private struct WalkActivityActionButtons: View {
         Button(intent: FinishWalkIntent(walkID: walkID)) {
             Label("Finish", systemImage: "stop.fill")
         }
-        .tint(.red)
+        .tint(Color.signalAlertFill)
     }
 }
 
@@ -244,23 +246,23 @@ private extension WalkActivityStatus {
 
     var systemImage: String {
         switch self {
-        case .active: "figure.walk"
+        case .active: WalkSymbol.walk
         case .paused: "pause.fill"
         case .finishCandidate: "questionmark"
         case .finalizing: "arrow.trianglehead.2.clockwise"
-        case .completed: "checkmark"
-        case .interrupted: "exclamationmark"
+        case .completed: WalkSymbol.good
+        case .interrupted: WalkSymbol.alert
         }
     }
 
     var tint: Color {
         switch self {
-        case .active: .blue
-        case .paused: .orange
-        case .finishCandidate: .yellow
-        case .finalizing: .secondary
-        case .completed: .green
-        case .interrupted: .red
+        case .active: .brandGreen
+        case .paused: .signalCaution
+        case .finishCandidate: .signalCaution
+        case .finalizing: .textSecondary
+        case .completed: .signalGood
+        case .interrupted: .signalAlert
         }
     }
 }

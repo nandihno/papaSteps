@@ -10,7 +10,9 @@ struct Phase2RouteFixtureTests {
             extension: "gpx"
         )
         let start = Date(timeIntervalSince1970: 1_800_000_000)
-        let engine = WalkMetricsEngine()
+        var configuration = TrackingConfiguration.live
+        configuration.maximumRouteGap = 90
+        let engine = WalkMetricsEngine(configuration: configuration)
         _ = await engine.start(
             id: UUID(),
             at: start,

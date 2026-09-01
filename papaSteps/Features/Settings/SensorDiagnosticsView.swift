@@ -15,7 +15,7 @@ struct SensorDiagnosticsView: View {
                         "Simulator sensor results are expected to be unavailable or simulated. Use a physical iPhone before deciding hardware support.",
                         systemImage: "iphone.gen3.slash"
                     )
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
                 }
             }
 

@@ -6,7 +6,7 @@ struct WalkAnalyticsTests {
     private let melbourne = TimeZone(identifier: "Australia/Melbourne")!
 
     @Test
-    func weeklyAggregatesUseTheWalkStartTimeZoneAndExcludeIneligibleWalks() {
+    func weeklyAggregatesUseTheWalkStartTimeZoneAndExcludeWalksWithoutAUsableRoute() {
         let now = date(2026, 8, 15, 12)
         let currentWeekWalk = walk(
             start: date(2026, 8, 9, 15),
@@ -14,16 +14,17 @@ struct WalkAnalyticsTests {
             distance: 1_200,
             steps: 1_600
         )
-        let shortWalk = walk(
+        let unusableRouteWalk = walk(
             start: date(2026, 8, 12, 9),
             timeZoneIdentifier: "Australia/Melbourne",
             distance: 100,
-            steps: 300
+            steps: 300,
+            routeQuality: .unavailable
         )
         let service = WalkAnalyticsService(timeZone: melbourne)
 
         let snapshot = service.makeSnapshot(
-            walks: [currentWeekWalk, shortWalk],
+            walks: [currentWeekWalk, unusableRouteWalk],
             now: now
         )
 
@@ -41,37 +42,29 @@ struct WalkAnalyticsTests {
     }
 
     @Test
-    func stricterEligibilityRulesRecomputeFromSnapshotsWithoutMutatingThem() {
-        let source = walk(
+    func eligibilityAcceptsAnyFinishedWalkWithAUsableRouteRegardlessOfDistanceOrDuration() {
+        let briefWalk = walk(
             start: date(2026, 8, 10, 9),
             timeZoneIdentifier: "Australia/Melbourne",
-            distance: 600,
-            steps: 900
+            distance: 200,
+            movingDuration: 240
         )
-        let permissive = WalkAnalyticsService(
-            rules: WalkEligibilityRules(
-                version: 1,
-                minimumMovingDuration: 60,
-                minimumDistanceMeters: 250
-            ),
-            timeZone: melbourne
+        let unusableRouteWalk = walk(
+            start: date(2026, 8, 10, 9),
+            timeZoneIdentifier: "Australia/Melbourne",
+            distance: 5_000,
+            routeQuality: .unavailable
         )
-        let strict = WalkAnalyticsService(
-            rules: WalkEligibilityRules(
-                version: 2,
-                minimumMovingDuration: 60,
-                minimumDistanceMeters: 1_000
-            ),
-            timeZone: melbourne
+        let service = WalkAnalyticsService(timeZone: melbourne)
+
+        let snapshot = service.makeSnapshot(
+            walks: [briefWalk, unusableRouteWalk],
+            now: date(2026, 8, 15, 12)
         )
 
-        let permissiveSnapshot = permissive.makeSnapshot(walks: [source], now: date(2026, 8, 15, 12))
-        let strictSnapshot = strict.makeSnapshot(walks: [source], now: date(2026, 8, 15, 12))
-
-        #expect(permissiveSnapshot.eligibleWalkCount == 1)
-        #expect(strictSnapshot.eligibleWalkCount == 0)
-        #expect(source.eligibilityRulesVersion == 1)
-        #expect(strictSnapshot.rulesVersion == 2)
+        #expect(snapshot.eligibleWalkCount == 1)
+        #expect(snapshot.ineligibleWalkCount == 1)
+        #expect(snapshot.rulesVersion == WalkEligibilityRules.current.version)
     }
 
     @Test
@@ -122,7 +115,8 @@ struct WalkAnalyticsTests {
         timeZoneIdentifier: String,
         distance: Double,
         steps: Int = 1_000,
-        movingDuration: TimeInterval = 600
+        movingDuration: TimeInterval = 600,
+        routeQuality: RouteQuality = .good
     ) -> WalkSummary {
         WalkSummary(
             id: UUID(),
@@ -137,7 +131,7 @@ struct WalkAnalyticsTests {
             stepSource: .motion,
             averageSpeed: distance / movingDuration,
             elevationGain: 20,
-            routeQuality: .good,
+            routeQuality: routeQuality,
             routeQualityReason: nil,
             healthEnrichmentStatus: .notRequested,
             origin: .papaSteps,

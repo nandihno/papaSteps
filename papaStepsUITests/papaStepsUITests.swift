@@ -13,7 +13,9 @@ final class papaStepsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Walk"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.alerts.element.exists)
         XCTAssertTrue(app.buttons["walk.start"].exists)
-        XCTAssertTrue(app.buttons["walk.diagnostics"].exists)
+
+        app.buttons["walk.settings"].tap()
+        XCTAssertTrue(app.buttons["walk.diagnostics"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -35,6 +37,7 @@ final class papaStepsUITests: XCTestCase {
         let app = makeApp()
         app.launch()
 
+        app.buttons["walk.settings"].tap()
         app.buttons["walk.health.settings"].tap()
 
         XCTAssertTrue(app.navigationBars["Apple Health"].waitForExistence(timeout: 5))
@@ -56,6 +59,7 @@ final class papaStepsUITests: XCTestCase {
         let app = makeApp()
         app.launch()
 
+        app.buttons["walk.settings"].tap()
         app.buttons["walk.health.settings"].tap()
         app.buttons["health.import.open"].tap()
 

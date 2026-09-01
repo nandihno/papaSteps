@@ -21,7 +21,7 @@ final class LiveWalkSessionCoordinator: WalkSessionCoordinating {
     private var lastCheckpointDate: Date?
     private var cachedFinalRecord: NewWalkRecord?
     private var isReconciling = false
-    private var lastPersistedPointCount = 0
+    private var lastPersistedAcceptedPointCount = 0
     private var latestMotionActivity: WalkMotionActivitySample?
     private var stopDetector: LikelyStopDetector
 
@@ -92,7 +92,7 @@ final class LiveWalkSessionCoordinator: WalkSessionCoordinating {
         sessionStartDate = startDate
         lastCheckpointDate = startDate
         cachedFinalRecord = nil
-        lastPersistedPointCount = 0
+        lastPersistedAcceptedPointCount = 0
         latestMotionActivity = nil
         stopDetector.start()
 
@@ -150,7 +150,7 @@ final class LiveWalkSessionCoordinator: WalkSessionCoordinating {
         sessionStartDate = checkpoint.startDate
         lastCheckpointDate = date
         cachedFinalRecord = nil
-        lastPersistedPointCount = checkpoint.trackPoints.count
+        lastPersistedAcceptedPointCount = checkpoint.trackPoints.filter(\.isAccepted).count
         latestMotionActivity = nil
         emit(await engine.restore(from: checkpoint, at: date))
         guard resumeSensors else { return }
@@ -186,7 +186,7 @@ final class LiveWalkSessionCoordinator: WalkSessionCoordinating {
         sessionStartDate = nil
         lastCheckpointDate = nil
         cachedFinalRecord = nil
-        lastPersistedPointCount = 0
+        lastPersistedAcceptedPointCount = 0
         latestMotionActivity = nil
         emit(.empty)
     }
@@ -277,7 +277,7 @@ final class LiveWalkSessionCoordinator: WalkSessionCoordinating {
         case .location(let sample):
             let snapshot = await engine.ingestLocation(sample, receivedAt: date)
             emit(snapshot)
-            if snapshot.acceptedLocationCount - lastPersistedPointCount
+            if snapshot.acceptedLocationCount - lastPersistedAcceptedPointCount
                 >= configuration.trackPointBatchSize {
                 await publishCheckpoint(at: date)
             }
@@ -398,7 +398,7 @@ final class LiveWalkSessionCoordinator: WalkSessionCoordinating {
 
     private func publishCheckpoint(at date: Date) async {
         guard let checkpoint = try? await engine.checkpoint(at: date) else { return }
-        lastPersistedPointCount = checkpoint.trackPoints.count
+        lastPersistedAcceptedPointCount = checkpoint.trackPoints.filter(\.isAccepted).count
         checkpointContinuation.yield(checkpoint)
     }
 }

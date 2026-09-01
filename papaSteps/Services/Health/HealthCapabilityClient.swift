@@ -10,6 +10,7 @@ enum HealthDataError: LocalizedError, Equatable {
     case routeBuilderUnavailable
     case workoutNotCreated
     case workoutNotFound
+    case backgroundDeliveryUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -27,6 +28,8 @@ enum HealthDataError: LocalizedError, Equatable {
             "The Apple Health workout could not be created."
         case .workoutNotFound:
             "That walking workout is no longer available in Apple Health."
+        case .backgroundDeliveryUnavailable:
+            "Apple Health would not enable background updates for workouts. Automatic import stays off; you can still import walks manually."
         }
     }
 }
@@ -117,6 +120,24 @@ struct HealthWorkoutPayload: Equatable, Sendable {
     }
 }
 
+/// One "walking workouts changed" notification from Apple Health.
+///
+/// HealthKit keeps the app awake — including after a background launch — only
+/// until the notification is acknowledged, and re-delivers anything that was
+/// never acknowledged. Consumers must therefore call ``acknowledge()`` exactly
+/// once, on every path out of processing.
+struct HealthWorkoutChange: Sendable {
+    private let completion: @Sendable () -> Void
+
+    init(completion: @escaping @Sendable () -> Void) {
+        self.completion = completion
+    }
+
+    func acknowledge() {
+        completion()
+    }
+}
+
 @MainActor
 protocol HealthCapabilityProviding: AnyObject {
     func capabilityStatuses() -> [CapabilityStatus]
@@ -137,12 +158,24 @@ protocol HealthDataProviding: HealthCapabilityProviding {
         -> [HealthWalkingWorkout]
     func walkingWorkoutImport(id: UUID) async throws
         -> HealthWalkingWorkoutImport
+    func enableWalkingWorkoutBackgroundDelivery() async throws
+    func disableWalkingWorkoutBackgroundDelivery() async
+    /// Notifications that Apple Health's walking workouts changed.
+    ///
+    /// The stream stays open until its task is cancelled. Each element must be
+    /// acknowledged; see ``HealthWorkoutChange``.
+    func walkingWorkoutChanges() -> AsyncStream<HealthWorkoutChange>
 }
 
 @MainActor
 protocol HealthPreferencesProviding: AnyObject {
     var insightsRequested: Bool { get set }
     var workoutExportEnabled: Bool { get set }
+    var workoutAutoImportEnabled: Bool { get set }
+    /// When auto-import was switched on. Auto-import never reaches back before
+    /// this date, so enabling it does not silently backfill old history; the
+    /// manual import screen stays the way to pull in anything older.
+    var workoutAutoImportSince: Date? { get set }
 }
 
 @MainActor
@@ -150,6 +183,8 @@ final class LiveHealthPreferences: HealthPreferencesProviding {
     private enum Key {
         static let insightsRequested = "health.insights.requested"
         static let workoutExportEnabled = "health.workout.export.enabled"
+        static let workoutAutoImportEnabled = "health.workout.autoImport.enabled"
+        static let workoutAutoImportSince = "health.workout.autoImport.since"
     }
 
     private let defaults: UserDefaults
@@ -167,19 +202,41 @@ final class LiveHealthPreferences: HealthPreferencesProviding {
         get { defaults.bool(forKey: Key.workoutExportEnabled) }
         set { defaults.set(newValue, forKey: Key.workoutExportEnabled) }
     }
+
+    var workoutAutoImportEnabled: Bool {
+        get { defaults.bool(forKey: Key.workoutAutoImportEnabled) }
+        set { defaults.set(newValue, forKey: Key.workoutAutoImportEnabled) }
+    }
+
+    var workoutAutoImportSince: Date? {
+        get { defaults.object(forKey: Key.workoutAutoImportSince) as? Date }
+        set {
+            if let newValue {
+                defaults.set(newValue, forKey: Key.workoutAutoImportSince)
+            } else {
+                defaults.removeObject(forKey: Key.workoutAutoImportSince)
+            }
+        }
+    }
 }
 
 @MainActor
 final class FakeHealthPreferences: HealthPreferencesProviding {
     var insightsRequested: Bool
     var workoutExportEnabled: Bool
+    var workoutAutoImportEnabled: Bool
+    var workoutAutoImportSince: Date?
 
     init(
         insightsRequested: Bool = false,
-        workoutExportEnabled: Bool = false
+        workoutExportEnabled: Bool = false,
+        workoutAutoImportEnabled: Bool = false,
+        workoutAutoImportSince: Date? = nil
     ) {
         self.insightsRequested = insightsRequested
         self.workoutExportEnabled = workoutExportEnabled
+        self.workoutAutoImportEnabled = workoutAutoImportEnabled
+        self.workoutAutoImportSince = workoutAutoImportSince
     }
 }
 
@@ -188,6 +245,10 @@ final class LiveHealthCapabilityClient: HealthDataProviding {
     private enum Metadata {
         static let localWalkID = "org.nando.papaSteps.localWalkID"
     }
+
+    /// The gap that ends a route segment, borrowed from the live recorder so an
+    /// imported walk breaks its line exactly where a recorded one would.
+    private static let maximumRouteGap = TrackingConfiguration().maximumRouteGap
 
     private let healthStore: HKHealthStore
 
@@ -319,9 +380,8 @@ final class LiveHealthCapabilityClient: HealthDataProviding {
             limit: HKObjectQueryNoLimit
         )
         let routes = try await routeDescriptor.result(for: healthStore)
-        var points: [NewTrackPoint] = []
+        var locations: [CLLocation] = []
         for route in routes {
-            var startsNewSegment = true
             for try await location in HKWorkoutRouteQueryDescriptor(route)
                 .results(for: healthStore) {
                 guard location.coordinate.latitude.isFinite,
@@ -336,33 +396,136 @@ final class LiveHealthCapabilityClient: HealthDataProviding {
                       location.timestamp <= workout.endDate else {
                     continue
                 }
-                points.append(
-                    NewTrackPoint(
-                        id: UUID(),
-                        timestamp: location.timestamp,
-                        latitude: location.coordinate.latitude,
-                        longitude: location.coordinate.longitude,
-                        altitude: location.altitude,
-                        horizontalAccuracy: location.horizontalAccuracy,
-                        verticalAccuracy: location.verticalAccuracy,
-                        speed: location.speed >= 0 ? location.speed : nil,
-                        speedAccuracy: location.speedAccuracy >= 0
-                            ? location.speedAccuracy : nil,
-                        course: location.course >= 0 ? location.course : nil,
-                        courseAccuracy: location.courseAccuracy >= 0
-                            ? location.courseAccuracy : nil,
-                        isAccepted: true,
-                        rejectionReason: nil,
-                        startsNewSegment: startsNewSegment
-                    )
-                )
-                startsNewSegment = false
+                locations.append(location)
             }
+        }
+        // Segments are decided after ordering the whole walk, not per route:
+        // a pause leaves a hole in one series rather than starting a new one,
+        // and several routes can interleave in time.
+        locations.sort { $0.timestamp < $1.timestamp }
+
+        var points: [NewTrackPoint] = []
+        var previousTimestamp: Date?
+        for location in locations {
+            let startsNewSegment = previousTimestamp.map {
+                location.timestamp.timeIntervalSince($0) > Self.maximumRouteGap
+            } ?? true
+            points.append(
+                NewTrackPoint(
+                    id: UUID(),
+                    timestamp: location.timestamp,
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude,
+                    altitude: location.altitude,
+                    horizontalAccuracy: location.horizontalAccuracy,
+                    verticalAccuracy: location.verticalAccuracy,
+                    speed: location.speed >= 0 ? location.speed : nil,
+                    speedAccuracy: location.speedAccuracy >= 0
+                        ? location.speedAccuracy : nil,
+                    course: location.course >= 0 ? location.course : nil,
+                    courseAccuracy: location.courseAccuracy >= 0
+                        ? location.courseAccuracy : nil,
+                    isAccepted: true,
+                    rejectionReason: nil,
+                    startsNewSegment: startsNewSegment
+                )
+            )
+            previousTimestamp = location.timestamp
         }
         return HealthWalkingWorkoutImport(
             workout: healthWalkingWorkout(from: workout),
-            routePoints: points.sorted { $0.timestamp < $1.timestamp }
+            routePoints: points
         )
+    }
+
+    func enableWalkingWorkoutBackgroundDelivery() async throws {
+        guard isAvailable else { throw HealthDataError.unavailable }
+        do {
+            // Workouts are one of the few types that support `.immediate`, so a
+            // finished Apple Watch walk wakes the app instead of waiting an hour.
+            try await healthStore.enableBackgroundDelivery(
+                for: HKObjectType.workoutType(),
+                frequency: .immediate
+            )
+        } catch {
+            throw HealthDataError.backgroundDeliveryUnavailable
+        }
+
+        // A watch walk's location series transfers separately from — and often
+        // after — the workout itself, so the workout notification alone can
+        // arrive while the route is still missing. Waking for the route too is
+        // what lets the import fill it in. Best effort: losing this costs a
+        // delayed route, not the walk, so it must not fail the whole opt-in.
+        try? await healthStore.enableBackgroundDelivery(
+            for: HKSeriesType.workoutRoute(),
+            frequency: .immediate
+        )
+    }
+
+    func disableWalkingWorkoutBackgroundDelivery() async {
+        guard isAvailable else { return }
+        try? await healthStore.disableBackgroundDelivery(
+            for: HKObjectType.workoutType()
+        )
+        try? await healthStore.disableBackgroundDelivery(
+            for: HKSeriesType.workoutRoute()
+        )
+    }
+
+    func walkingWorkoutChanges() -> AsyncStream<HealthWorkoutChange> {
+        guard isAvailable else { return AsyncStream { $0.finish() } }
+        let healthStore = healthStore
+
+        return AsyncStream { continuation in
+            // Routes cannot be narrowed to walking workouts the way workouts
+            // can, so that observer runs unpredicated; a pass it triggers for
+            // some other activity's route simply finds nothing to do.
+            let queries = [
+                HKObserverQuery(
+                    sampleType: HKObjectType.workoutType(),
+                    predicate: HKQuery.predicateForWorkouts(with: .walking),
+                    updateHandler: Self.changeHandler(for: continuation)
+                ),
+                HKObserverQuery(
+                    sampleType: HKSeriesType.workoutRoute(),
+                    predicate: nil,
+                    updateHandler: Self.changeHandler(for: continuation)
+                )
+            ]
+
+            nonisolated(unsafe) let observedQueries = queries
+            continuation.onTermination = { _ in
+                for query in observedQueries {
+                    healthStore.stop(query)
+                }
+            }
+            for query in queries {
+                healthStore.execute(query)
+            }
+        }
+    }
+
+    private static func changeHandler(
+        for continuation: AsyncStream<HealthWorkoutChange>.Continuation
+    ) -> @Sendable (HKObserverQuery, @escaping HKObserverQueryCompletionHandler, (any Error)?) -> Void {
+        { _, completionHandler, error in
+            nonisolated(unsafe) let completionHandler = completionHandler
+            guard error == nil else {
+                // Acknowledge anyway; an unanswered notification stalls
+                // every later delivery.
+                completionHandler()
+                return
+            }
+            // The handler travels downstream rather than firing here, so
+            // HealthKit keeps the app alive until the import has finished.
+            let change = HealthWorkoutChange(
+                completion: { completionHandler() }
+            )
+            if case .enqueued = continuation.yield(change) {
+                return
+            }
+            change.acknowledge()
+        }
     }
 
     func fetchEnrichment(
@@ -602,7 +765,11 @@ final class FakeHealthCapabilityClient: HealthDataProviding {
     private(set) var workoutCreationCount = 0
     private(set) var workoutEnsureCount = 0
     private(set) var walkingWorkoutReadAuthorizationCount = 0
+    private(set) var backgroundDeliveryEnableCount = 0
+    private(set) var isBackgroundDeliveryEnabled = false
+    var backgroundDeliveryError: (any Error)?
     private var workoutsByWalkID: [UUID: UUID] = [:]
+    private var changeContinuation: AsyncStream<HealthWorkoutChange>.Continuation?
 
     init(
         isAvailable: Bool = true,
@@ -686,6 +853,35 @@ final class FakeHealthCapabilityClient: HealthDataProviding {
             throw HealthDataError.workoutNotFound
         }
         return imported
+    }
+
+    func enableWalkingWorkoutBackgroundDelivery() async throws {
+        backgroundDeliveryEnableCount += 1
+        if let backgroundDeliveryError { throw backgroundDeliveryError }
+        guard isAvailable else { throw HealthDataError.unavailable }
+        isBackgroundDeliveryEnabled = true
+    }
+
+    func disableWalkingWorkoutBackgroundDelivery() async {
+        isBackgroundDeliveryEnabled = false
+    }
+
+    func walkingWorkoutChanges() -> AsyncStream<HealthWorkoutChange> {
+        AsyncStream { continuation in
+            changeContinuation = continuation
+        }
+    }
+
+    /// Simulates Apple Health reporting new walking workouts, and resolves once
+    /// the consumer has acknowledged the notification.
+    func emitWalkingWorkoutChange() async {
+        guard let changeContinuation else { return }
+        await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+            nonisolated(unsafe) let resume = resume
+            changeContinuation.yield(
+                HealthWorkoutChange(completion: { resume.resume() })
+            )
+        }
     }
 
     func externallyCreateWorkout(for walkID: UUID) -> UUID {

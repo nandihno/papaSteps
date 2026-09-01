@@ -292,6 +292,10 @@ private final class RecordingWalkRepository: WalkRepository {
         []
     }
 
+    func healthWorkoutIDsAwaitingRoute(in ids: Set<UUID>) throws -> Set<UUID> {
+        []
+    }
+
     func importHealthWorkout(
         _ importedWorkout: HealthWalkingWorkoutImport,
         importedAt: Date,

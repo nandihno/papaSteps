@@ -17,7 +17,10 @@ struct WalkPermissionSheet: View {
                                 .font(.headline)
                             Text("Provides live steps, pedometer distance, and movement evidence.")
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.textSecondary)
+                            Text("Without it: distance and steps come from GPS alone.")
+                                .font(.footnote)
+                                .foregroundStyle(Color.textSecondary)
                         }
                     } icon: {
                         Image(systemName: WalkSymbol.motion)
@@ -30,7 +33,10 @@ struct WalkPermissionSheet: View {
                                 .font(.headline)
                             Text("Provides GPS speed, direction, altitude, and the current-position map.")
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.textSecondary)
+                            Text("Without it: steps, moving time, and elevation gain still record.")
+                                .font(.footnote)
+                                .foregroundStyle(Color.textSecondary)
                         }
                     } icon: {
                         Image(systemName: WalkSymbol.location)
@@ -52,22 +58,12 @@ struct WalkPermissionSheet: View {
                     }
                 }
 
-                Section {
-                    if store.canOpenSettings {
+                if store.canOpenSettings {
+                    Section {
                         Button("Open Settings") {
                             openSettings()
                         }
                     }
-
-                    Button(primaryActionTitle) {
-                        dismiss()
-                        Task {
-                            await store.start(requestPermissions: true)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canAttemptWalk)
-                    .accessibilityIdentifier("walk.permissions.continue")
                 }
             }
             .navigationTitle("Prepare Your Walk")
@@ -78,6 +74,19 @@ struct WalkPermissionSheet: View {
                         dismiss()
                     }
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button(primaryActionTitle) {
+                    dismiss()
+                    Task {
+                        await store.start(requestPermissions: true)
+                    }
+                }
+                .buttonStyle(.primaryWalk)
+                .disabled(!canAttemptWalk)
+                .padding(Spacing.screenMargin)
+                .background(.bar)
+                .accessibilityIdentifier("walk.permissions.continue")
             }
         }
         .presentationDetents([.medium, .large])

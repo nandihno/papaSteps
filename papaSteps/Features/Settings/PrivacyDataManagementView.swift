@@ -13,18 +13,19 @@ struct PrivacyDataManagementView: View {
 
             Section("Export") {
                 Text("This beta does not export a file of your walk data. Your walks remain available in History on this iPhone. Export formats will be considered only after privacy, route-redaction, and support requirements are defined.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             Section("Delete local data") {
                 Button("Delete All Local Walk Data", role: .destructive) {
                     isConfirmingDeletion = true
                 }
+                .foregroundStyle(Color.signalAlert)
                 .accessibilityIdentifier("privacy.deleteAll")
 
                 Text("This permanently deletes all papaSteps walk summaries, drafts, and saved route points from this iPhone. It does not delete workouts already saved to Apple Health.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
         }
         .navigationTitle("Privacy & Data")

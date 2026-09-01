@@ -70,6 +70,7 @@ struct AppRootView: View {
             .environment(dependencies.progressStore)
             .environment(dependencies.walkHealthStore)
             .environment(dependencies.healthWorkoutImportStore)
+            .environment(dependencies.healthWorkoutAutoImporter)
             .environment(dependencies.walkDisplayPreferences)
 #if DEBUG
             .environment(dependencies.sensorDiagnosticsStore)
@@ -81,6 +82,9 @@ struct AppRootView: View {
                 Task {
                     if newPhase == .active {
                         await dependencies.walkSessionStore.reconcileAfterForeground()
+                        // Covers walks that landed in Health while the app was
+                        // terminated and never got a background wake.
+                        await dependencies.healthWorkoutAutoImporter.runCatchUpPass()
                     } else if newPhase == .inactive || newPhase == .background {
                         await dependencies.walkSessionStore.checkpointBeforeBackground()
                     }

@@ -6,9 +6,13 @@ struct HistoryView: View {
     @Environment(WalkDisplayPreferences.self) private var displayPreferences
     @Environment(AppTabRouter.self) private var tabRouter
     @State private var walkPendingDeletion: WalkSummary?
+    /// Explicit expand/collapse choices, keyed by `WalkWeek.id`. A week with no
+    /// entry here falls back to its default (only the most recent week starts
+    /// expanded) so newly recorded walks don't reset choices made on older weeks.
+    @State private var weekExpansionOverrides: [String: Bool] = [:]
 
-    private var months: [WalkHistoryMonth] {
-        WalkHistoryMonth.group(historyStore.summaries)
+    private var weeks: [WalkHistoryWeek] {
+        WalkHistoryWeek.group(historyStore.summaries)
     }
 
     var body: some View {
@@ -27,13 +31,15 @@ struct HistoryView: View {
                 }
             } else {
                 List {
-                    ForEach(months) { month in
+                    ForEach(Array(weeks.enumerated()), id: \.element.id) { index, week in
                         Section {
-                            ForEach(month.walks) { summary in
-                                walkRow(summary)
+                            if isExpanded(week, isMostRecent: index == 0) {
+                                ForEach(week.walks) { summary in
+                                    walkRow(summary)
+                                }
                             }
                         } header: {
-                            monthHeader(month)
+                            weekHeader(week, isMostRecent: index == 0)
                         }
                     }
                 }
@@ -100,72 +106,108 @@ struct HistoryView: View {
         .accessibilityIdentifier("history.walk.\(summary.id.uuidString)")
     }
 
-    private func monthHeader(_ month: WalkHistoryMonth) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(month.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.textPrimary)
-            Spacer()
-            Text(
-                WalkMetricFormatting.distance(
-                    month.totalDistance,
-                    configuration: displayPreferences.configuration
+    /// A week with no explicit override defaults to expanded only if it's the
+    /// most recent one, so the list opens compact instead of one long scroll.
+    private func isExpanded(_ week: WalkHistoryWeek, isMostRecent: Bool) -> Bool {
+        weekExpansionOverrides[week.id] ?? isMostRecent
+    }
+
+    private func weekHeader(_ week: WalkHistoryWeek, isMostRecent: Bool) -> some View {
+        let expanded = isExpanded(week, isMostRecent: isMostRecent)
+        let title = week.title()
+        return Button {
+            withAnimation(.snappy) {
+                weekExpansionOverrides[week.id] = !expanded
+            }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                Image(systemName: WalkSymbol.disclosure)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.textSecondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.textPrimary)
+                Spacer()
+                Text(
+                    WalkMetricFormatting.distance(
+                        week.totalDistance,
+                        configuration: displayPreferences.configuration
+                    )
                 )
-            )
-            .font(.subheadline)
-            .monospacedDigit()
-            .foregroundStyle(Color.textSecondary)
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(Color.textSecondary)
+            }
+            .contentShape(.rect)
         }
+        .buttonStyle(.plain)
         .textCase(nil)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(month.title)
+        .accessibilityLabel(title)
         .accessibilityValue(
-            "\(month.walks.count) walks, \(WalkMetricFormatting.distance(month.totalDistance, configuration: displayPreferences.configuration)) in total"
+            "\(week.walks.count) walk\(week.walks.count == 1 ? "" : "s"), "
+                + "\(WalkMetricFormatting.distance(week.totalDistance, configuration: displayPreferences.configuration)) in total, "
+                + (expanded ? "expanded" : "collapsed")
         )
+        .accessibilityAddTraits(.isButton)
     }
 }
 
-/// Walks bucketed by the month they started in, using each walk's own stored
-/// time zone so a trip does not shuffle rows between months.
-struct WalkHistoryMonth: Identifiable {
+/// Walks bucketed by the Monday-to-Sunday ISO week they started in, using each
+/// walk's own stored time zone so a trip does not shuffle rows between weeks.
+struct WalkHistoryWeek: Identifiable {
     let id: String
-    let title: String
+    let week: WalkWeek
     let walks: [WalkSummary]
 
     var totalDistance: Double {
         walks.reduce(into: 0) { $0 += $1.displayDistance ?? 0 }
     }
 
-    static func group(_ summaries: [WalkSummary]) -> [WalkHistoryMonth] {
+    func title(now: Date = .now) -> String {
+        let currentWeek = WalkWeek.current(at: now, timeZone: .current)
+        if week == currentWeek { return "This week" }
+        if week == currentWeek.previous(in: .current) { return "Last week" }
+        return Self.dateRangeTitle(for: week, now: now)
+    }
+
+    static func group(_ summaries: [WalkSummary]) -> [WalkHistoryWeek] {
         var order: [String] = []
         var walksByKey: [String: [WalkSummary]] = [:]
-        var titlesByKey: [String: String] = [:]
+        var weekByKey: [String: WalkWeek] = [:]
 
         for summary in summaries {
-            var calendar = Calendar(identifier: .gregorian)
-            let timeZone = TimeZone(identifier: summary.timeZoneIdentifier) ?? .current
-            calendar.timeZone = timeZone
-            let components = calendar.dateComponents([.year, .month], from: summary.startDate)
-            let key = "\(components.year ?? 0)-\(components.month ?? 0)"
+            let week = WalkWeek.from(summary.startDate, timeZoneIdentifier: summary.timeZoneIdentifier)
+            let key = week.id
 
             if walksByKey[key] == nil {
                 order.append(key)
-                titlesByKey[key] = summary.startDate.formatted(
-                    Date.FormatStyle(date: .omitted, time: .omitted, timeZone: timeZone)
-                        .month(.wide)
-                        .year()
-                )
+                weekByKey[key] = week
             }
             walksByKey[key, default: []].append(summary)
         }
 
         return order.map { key in
-            WalkHistoryMonth(
+            WalkHistoryWeek(
                 id: key,
-                title: titlesByKey[key] ?? "",
+                week: weekByKey[key] ?? .current(at: .now, timeZone: .current),
                 walks: walksByKey[key] ?? []
             )
         }
+    }
+
+    private static func dateRangeTitle(for week: WalkWeek, now: Date) -> String {
+        let monday = week.date(in: .current)
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = .current
+        let sunday = calendar.date(byAdding: .day, value: 6, to: monday) ?? monday
+
+        let showsYear = calendar.component(.year, from: sunday) != calendar.component(.year, from: now)
+        let format: Date.FormatStyle = showsYear
+            ? .dateTime.month(.abbreviated).day().year()
+            : .dateTime.month(.abbreviated).day()
+        return "\(monday.formatted(format)) – \(sunday.formatted(format))"
     }
 }
 

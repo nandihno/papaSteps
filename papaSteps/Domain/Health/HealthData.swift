@@ -30,6 +30,21 @@ struct HealthWalkingWorkout: Identifiable, Equatable, Sendable {
     var pausedDuration: TimeInterval {
         max(0, elapsedDuration - movingDuration)
     }
+
+    /// How long after a workout ends papaSteps keeps looking for its route.
+    ///
+    /// A watch transfers the location series separately from the workout, so a
+    /// walk can arrive without one; ending a mirrored session on the phone
+    /// makes that gap near certain. The transfer itself takes minutes, but the
+    /// window matches the auto-import catch-up window so a walk stays
+    /// repairable for exactly as long as it is still in scope. Past it, a
+    /// missing route is taken to mean there is none — an indoor walk, say —
+    /// rather than one still on its way.
+    static let routeSyncGracePeriod: TimeInterval = 7 * 24 * 60 * 60
+
+    func mayStillBeAwaitingRoute(at reference: Date) -> Bool {
+        reference.timeIntervalSince(endDate) < Self.routeSyncGracePeriod
+    }
 }
 
 struct HealthWalkingWorkoutImport: Equatable, Sendable {

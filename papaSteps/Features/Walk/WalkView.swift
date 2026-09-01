@@ -87,31 +87,12 @@ struct WalkView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
-                    WalkRecordingSettingsView()
+                    WalkSettingsView()
                 } label: {
-                    Label("Walk Recording", systemImage: WalkSymbol.settings)
+                    Label("Settings", systemImage: WalkSymbol.settings)
                 }
-                .accessibilityIdentifier("walk.recording.settings")
+                .accessibilityIdentifier("walk.settings")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    HealthSettingsView()
-                } label: {
-                    Label("Apple Health", systemImage: WalkSymbol.healthDetail)
-                }
-                .accessibilityIdentifier("walk.health.settings")
-            }
-#if DEBUG
-            ToolbarSpacer(.fixed, placement: .topBarTrailing)
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    SensorDiagnosticsView()
-                } label: {
-                    Label("Sensor Diagnostics", systemImage: WalkSymbol.diagnostics)
-                }
-                .accessibilityIdentifier("walk.diagnostics")
-            }
-#endif
         }
     }
 

@@ -36,6 +36,7 @@ actor WalkMetricsEngine {
     private var routeDistance: Double = 0
     private var acceptedLocationCount = 0
     private var rejectedLocationCount = 0
+    private var lastProcessedLocationDate: Date?
     private var lastAcceptedLocation: WalkLocationSample?
     private var currentCoordinate: WalkCoordinate?
     private var locationAccuracy: LocationAccuracyState = .unknown
@@ -43,6 +44,8 @@ actor WalkMetricsEngine {
     private var locationUnavailableReason: String?
     private var routeSegmentStartPending = true
     private var trackPoints: [NewTrackPoint] = []
+    private var requiresLocationReacquisition = false
+    private var locationReacquisitionCandidate: WalkLocationSample?
     private var recoveryCause: WalkRecoveryCause?
 
     private var smoothedSpeed: Double?
@@ -129,11 +132,6 @@ actor WalkMetricsEngine {
     ) -> WalkMetricsSnapshot {
         locationAccuracy = sample.accuracyAuthorization
 
-        guard sample.horizontalAccuracy >= 0 else {
-            rejectLocation(.poorSignal)
-            return snapshot(at: date)
-        }
-
         if sample.accuracyAuthorization == .full {
             locationUnavailableReason = nil
         }
@@ -143,22 +141,73 @@ actor WalkMetricsEngine {
             return snapshot(at: date)
         }
 
+        guard let startDate,
+              sample.timestamp >= startDate,
+              sample.timestamp.timeIntervalSince(date)
+                <= configuration.maximumLocationFutureSkew,
+              !pauseWindows.contains(where: { $0.contains(sample.timestamp) }) else {
+            rejectLocation(
+                sample,
+                reason: .outsideWalkInterval,
+                limitation: .poorSignal,
+                advancesProcessedTimestamp: false
+            )
+            return snapshot(at: date)
+        }
+
+        if let lastProcessedLocationDate,
+           sample.timestamp <= lastProcessedLocationDate {
+            rejectLocation(
+                sample,
+                reason: .nonMonotonicTimestamp,
+                limitation: .poorSignal,
+                advancesProcessedTimestamp: false
+            )
+            return snapshot(at: date)
+        }
+
         guard sample.accuracyAuthorization == .full else {
-            rejectLocation(.reducedAccuracy)
+            rejectLocation(
+                sample,
+                reason: .reducedAccuracy,
+                limitation: .reducedAccuracy,
+                breaksRouteSegment: true
+            )
             return snapshot(at: date)
         }
 
-        let age = date.timeIntervalSince(sample.timestamp)
-        guard age >= -1, age <= configuration.maximumLocationAge,
-              sample.horizontalAccuracy <= configuration.maximumHorizontalAccuracy else {
-            rejectLocation(.poorSignal)
+        guard sample.horizontalAccuracy >= 0 else {
+            rejectLocation(
+                sample,
+                reason: .invalidAccuracy,
+                limitation: .poorSignal
+            )
             return snapshot(at: date)
         }
 
+        guard sample.horizontalAccuracy <= configuration.maximumHorizontalAccuracy else {
+            rejectLocation(
+                sample,
+                reason: .accuracyExceedsLimit,
+                limitation: .poorSignal
+            )
+            return snapshot(at: date)
+        }
+
+        if requiresLocationReacquisition {
+            return ingestLocationDuringReacquisition(sample, receivedAt: date)
+        }
+
+        var startsNewSegment = routeSegmentStartPending
+        var acceptedSegmentDistance: Double?
         if let previous = lastAcceptedLocation {
             let interval = sample.timestamp.timeIntervalSince(previous.timestamp)
             guard interval > 0 else {
-                rejectLocation(.poorSignal)
+                rejectLocation(
+                    sample,
+                    reason: .nonMonotonicTimestamp,
+                    limitation: .poorSignal
+                )
                 return snapshot(at: date)
             }
 
@@ -167,50 +216,26 @@ actor WalkMetricsEngine {
                 to: sample.coordinate
             )
             guard segmentDistance / interval <= configuration.maximumWalkingSpeed else {
-                rejectLocation(.poorSignal)
+                rejectLocation(
+                    sample,
+                    reason: .impossibleJump,
+                    limitation: .poorSignal
+                )
+                beginLocationReacquisition()
                 return snapshot(at: date)
             }
-            routeDistance += segmentDistance
+            if interval > configuration.maximumRouteGap {
+                startsNewSegment = true
+            } else {
+                acceptedSegmentDistance = segmentDistance
+            }
         }
 
-        acceptedLocationCount += 1
-        lastAcceptedLocation = sample
-        currentCoordinate = sample.coordinate
-        trackPoints.append(
-            NewTrackPoint(
-                id: UUID(),
-                timestamp: sample.timestamp,
-                latitude: sample.coordinate.latitude,
-                longitude: sample.coordinate.longitude,
-                altitude: sample.altitude,
-                horizontalAccuracy: sample.horizontalAccuracy,
-                verticalAccuracy: sample.verticalAccuracy,
-                speed: sample.speed >= 0 ? sample.speed : nil,
-                speedAccuracy: sample.speedAccuracy >= 0 ? sample.speedAccuracy : nil,
-                course: sample.course >= 0 ? sample.course : nil,
-                courseAccuracy: sample.courseAccuracy >= 0 ? sample.courseAccuracy : nil,
-                isAccepted: true,
-                rejectionReason: nil,
-                startsNewSegment: routeSegmentStartPending
-            )
+        acceptLocation(
+            sample,
+            startsNewSegment: startsNewSegment,
+            segmentDistance: acceptedSegmentDistance
         )
-        routeSegmentStartPending = false
-        if routeLimitation == .poorSignal || routeLimitation == .unavailable {
-            routeLimitation = nil
-        }
-
-        if sample.verticalAccuracy >= 0,
-           sample.verticalAccuracy <= configuration.maximumVerticalAccuracy,
-           currentAbsoluteAltitude == nil || altitudeSource != .barometer {
-            recordAbsoluteAltitude(
-                sample.altitude,
-                at: sample.timestamp,
-                source: .location,
-                quality: sample.verticalAccuracy <= 15 ? .good : .degraded
-            )
-        }
-
-        ingestSpeedAndDirection(sample, receivedAt: date)
         return snapshot(at: date)
     }
 
@@ -287,19 +312,23 @@ actor WalkMetricsEngine {
         let previouslyUsable = locationAccuracy == .full
         locationAccuracy = accuracy
         if !authorization.permitsLocation {
+            discardUnconfirmedLocationCandidate()
             routeLimitation = authorization == .denied
                 ? .permissionDenied
                 : .unavailable
             lastAcceptedLocation = nil
             routeSegmentStartPending = true
+            clearLocationReacquisition()
             locationUnavailableReason = "Location access is unavailable."
             if isActive, previouslyUsable {
                 recoveryCause = .locationAccessChanged
             }
         } else if accuracy == .reduced {
+            discardUnconfirmedLocationCandidate()
             routeLimitation = .reducedAccuracy
             lastAcceptedLocation = nil
             routeSegmentStartPending = true
+            clearLocationReacquisition()
             locationUnavailableReason = "Precise Location is off."
             if isActive, previouslyUsable {
                 recoveryCause = .locationAccessChanged
@@ -335,9 +364,11 @@ actor WalkMetricsEngine {
     }
 
     func markLocationUnavailable(_ reason: String, at date: Date) -> WalkMetricsSnapshot {
+        discardUnconfirmedLocationCandidate()
         routeLimitation = .unavailable
         lastAcceptedLocation = nil
         routeSegmentStartPending = true
+        clearLocationReacquisition()
         locationUnavailableReason = reason
         return snapshot(at: date)
     }
@@ -364,12 +395,14 @@ actor WalkMetricsEngine {
     func pause(at date: Date) -> WalkMetricsSnapshot {
         _ = tick(at: date)
         guard isActive, !isPaused else { return snapshot(at: date) }
+        discardUnconfirmedLocationCandidate()
         isPaused = true
         currentPauseStart = date
         pauseStepsBaseline = rawSteps
         pauseDistanceBaseline = rawPedometerDistance
         lastAcceptedLocation = nil
         routeSegmentStartPending = true
+        clearLocationReacquisition()
         relativeAltitudeReference = nil
         return snapshot(at: date)
     }
@@ -382,6 +415,7 @@ actor WalkMetricsEngine {
         isPaused = false
         lastAcceptedLocation = nil
         routeSegmentStartPending = true
+        clearLocationReacquisition()
         relativeAltitudeReference = nil
         lastStepChangeDate = nil
         if smoothedSpeed != nil {
@@ -440,6 +474,7 @@ actor WalkMetricsEngine {
             commitPausedOffsets()
             closePauseWindow(at: date)
         }
+        discardUnconfirmedLocationCandidate()
         isActive = false
         isPaused = false
 
@@ -527,6 +562,8 @@ actor WalkMetricsEngine {
             locationUnavailableReason: locationUnavailableReason,
             routeSegmentStartPending: routeSegmentStartPending,
             trackPoints: trackPoints,
+            requiresLocationReacquisition: requiresLocationReacquisition,
+            locationReacquisitionCandidate: locationReacquisitionCandidate,
             smoothedSpeed: smoothedSpeed,
             maximumSustainedSpeed: maximumSustainedSpeed,
             lastSpeedDate: lastSpeedDate,
@@ -584,6 +621,14 @@ actor WalkMetricsEngine {
         routeDistance = checkpoint.routeDistance
         acceptedLocationCount = checkpoint.acceptedLocationCount
         rejectedLocationCount = checkpoint.rejectedLocationCount
+        lastProcessedLocationDate = checkpoint.trackPoints
+            .filter {
+                $0.rejectionReason != LocationRejectionReason.outsideWalkInterval.rawValue
+                    && $0.rejectionReason
+                        != LocationRejectionReason.nonMonotonicTimestamp.rawValue
+            }
+            .map(\.timestamp)
+            .max()
         lastAcceptedLocation = nil
         currentCoordinate = checkpoint.currentCoordinate
         locationAccuracy = checkpoint.locationAccuracy
@@ -591,6 +636,14 @@ actor WalkMetricsEngine {
         locationUnavailableReason = checkpoint.locationUnavailableReason
         routeSegmentStartPending = true
         trackPoints = checkpoint.trackPoints
+        requiresLocationReacquisition = checkpoint.requiresLocationReacquisition ?? false
+        locationReacquisitionCandidate = checkpoint.locationReacquisitionCandidate
+        if let candidate = locationReacquisitionCandidate {
+            lastProcessedLocationDate = max(
+                lastProcessedLocationDate ?? candidate.timestamp,
+                candidate.timestamp
+            )
+        }
         recoveryCause = checkpoint.recoveryCause
         smoothedSpeed = checkpoint.smoothedSpeed
         maximumSustainedSpeed = checkpoint.maximumSustainedSpeed
@@ -627,10 +680,7 @@ actor WalkMetricsEngine {
         snapshot(at: date)
     }
 
-    private func ingestSpeedAndDirection(
-        _ sample: WalkLocationSample,
-        receivedAt date: Date
-    ) {
+    private func ingestSpeedAndDirection(_ sample: WalkLocationSample) {
         let speedIsValid = sample.speed >= 0
             && sample.speed.isFinite
             && sample.speed <= configuration.maximumWalkingSpeed
@@ -645,7 +695,7 @@ actor WalkMetricsEngine {
             } else {
                 smoothedSpeed = sample.speed
             }
-            lastSpeedDate = date
+            lastSpeedDate = sample.timestamp
             if let smoothedSpeed {
                 maximumSustainedSpeed = max(maximumSustainedSpeed ?? 0, smoothedSpeed)
             }
@@ -665,15 +715,182 @@ actor WalkMetricsEngine {
             next: sample.course,
             factor: configuration.directionSmoothingFactor
         )
-        lastDirectionDate = date
+        lastDirectionDate = sample.timestamp
     }
 
-    private func rejectLocation(_ limitation: RouteLimitation) {
+    private func ingestLocationDuringReacquisition(
+        _ sample: WalkLocationSample,
+        receivedAt date: Date
+    ) -> WalkMetricsSnapshot {
+        guard let candidate = locationReacquisitionCandidate else {
+            locationReacquisitionCandidate = sample
+            lastProcessedLocationDate = sample.timestamp
+            return snapshot(at: date)
+        }
+
+        let interval = sample.timestamp.timeIntervalSince(candidate.timestamp)
+        let candidateDistance = distance(
+            from: candidate.coordinate,
+            to: sample.coordinate
+        )
+        let confirmsCandidate = interval > 0
+            && interval <= configuration.maximumRouteGap
+            && candidateDistance / interval <= configuration.maximumWalkingSpeed
+
+        guard confirmsCandidate else {
+            rejectLocation(
+                candidate,
+                reason: .reacquisitionUnconfirmed,
+                limitation: .poorSignal,
+                advancesProcessedTimestamp: false
+            )
+            locationReacquisitionCandidate = sample
+            lastProcessedLocationDate = sample.timestamp
+            return snapshot(at: date)
+        }
+
+        requiresLocationReacquisition = false
+        locationReacquisitionCandidate = nil
+        acceptLocation(
+            candidate,
+            startsNewSegment: true,
+            segmentDistance: nil
+        )
+        acceptLocation(
+            sample,
+            startsNewSegment: false,
+            segmentDistance: candidateDistance
+        )
+        return snapshot(at: date)
+    }
+
+    private func acceptLocation(
+        _ sample: WalkLocationSample,
+        startsNewSegment: Bool,
+        segmentDistance: Double?
+    ) {
+        if let segmentDistance {
+            routeDistance += segmentDistance
+        }
+        acceptedLocationCount += 1
+        lastProcessedLocationDate = sample.timestamp
+        lastAcceptedLocation = sample
+        currentCoordinate = sample.coordinate
+        insertTrackPoint(
+            trackPoint(
+                from: sample,
+                isAccepted: true,
+                rejectionReason: nil,
+                startsNewSegment: startsNewSegment
+            )
+        )
+        routeSegmentStartPending = false
+        if routeLimitation == .poorSignal || routeLimitation == .unavailable {
+            routeLimitation = nil
+        }
+
+        if sample.verticalAccuracy >= 0,
+           sample.verticalAccuracy <= configuration.maximumVerticalAccuracy,
+           currentAbsoluteAltitude == nil || altitudeSource != .barometer {
+            recordAbsoluteAltitude(
+                sample.altitude,
+                at: sample.timestamp,
+                source: .location,
+                quality: sample.verticalAccuracy <= 15 ? .good : .degraded
+            )
+        }
+
+        ingestSpeedAndDirection(sample)
+    }
+
+    private func beginLocationReacquisition() {
+        requiresLocationReacquisition = true
+        locationReacquisitionCandidate = nil
+        lastAcceptedLocation = nil
+        routeSegmentStartPending = true
+    }
+
+    private func discardUnconfirmedLocationCandidate() {
+        if let candidate = locationReacquisitionCandidate, isActive, !isPaused {
+            rejectLocation(
+                candidate,
+                reason: .reacquisitionUnconfirmed,
+                limitation: .poorSignal,
+                advancesProcessedTimestamp: false
+            )
+        }
+        clearLocationReacquisition()
+    }
+
+    private func clearLocationReacquisition() {
+        requiresLocationReacquisition = false
+        locationReacquisitionCandidate = nil
+    }
+
+    private func rejectLocation(
+        _ sample: WalkLocationSample,
+        reason: LocationRejectionReason,
+        limitation: RouteLimitation,
+        breaksRouteSegment: Bool = false,
+        advancesProcessedTimestamp: Bool = true
+    ) {
         guard isActive, !isPaused else { return }
         rejectedLocationCount += 1
         routeLimitation = limitation
-        lastAcceptedLocation = nil
-        routeSegmentStartPending = true
+        insertTrackPoint(
+            trackPoint(
+                from: sample,
+                isAccepted: false,
+                rejectionReason: reason.rawValue,
+                startsNewSegment: false
+            )
+        )
+        if advancesProcessedTimestamp {
+            lastProcessedLocationDate = max(
+                lastProcessedLocationDate ?? sample.timestamp,
+                sample.timestamp
+            )
+        }
+        if breaksRouteSegment {
+            lastAcceptedLocation = nil
+            routeSegmentStartPending = true
+            clearLocationReacquisition()
+        }
+    }
+
+    private func insertTrackPoint(_ point: NewTrackPoint) {
+        if trackPoints.last.map({ $0.timestamp <= point.timestamp }) ?? true {
+            trackPoints.append(point)
+            return
+        }
+        let insertionIndex = trackPoints.firstIndex {
+            $0.timestamp > point.timestamp
+        } ?? trackPoints.endIndex
+        trackPoints.insert(point, at: insertionIndex)
+    }
+
+    private func trackPoint(
+        from sample: WalkLocationSample,
+        isAccepted: Bool,
+        rejectionReason: String?,
+        startsNewSegment: Bool
+    ) -> NewTrackPoint {
+        NewTrackPoint(
+            id: UUID(),
+            timestamp: sample.timestamp,
+            latitude: sample.coordinate.latitude,
+            longitude: sample.coordinate.longitude,
+            altitude: sample.altitude,
+            horizontalAccuracy: sample.horizontalAccuracy,
+            verticalAccuracy: sample.verticalAccuracy,
+            speed: sample.speed >= 0 ? sample.speed : nil,
+            speedAccuracy: sample.speedAccuracy >= 0 ? sample.speedAccuracy : nil,
+            course: sample.course >= 0 ? sample.course : nil,
+            courseAccuracy: sample.courseAccuracy >= 0 ? sample.courseAccuracy : nil,
+            isAccepted: isAccepted,
+            rejectionReason: rejectionReason,
+            startsNewSegment: startsNewSegment
+        )
     }
 
     private func recordAbsoluteAltitude(
@@ -722,11 +939,14 @@ actor WalkMetricsEngine {
 
     private func selectedDistance() -> (value: Double?, source: DistanceSource) {
         let quality = currentRouteQuality()
-        if routeDistance > 0, quality != .unavailable {
+        if routeDistance > 0, quality == .good {
             return (routeDistance, .route)
         }
         if let pedometerDistance = effectivePedometerDistance() {
             return (pedometerDistance, .pedometer)
+        }
+        if routeDistance > 0, quality != .unavailable {
+            return (routeDistance, .route)
         }
         return (nil, .unavailable)
     }
@@ -741,7 +961,19 @@ actor WalkMetricsEngine {
         let total = acceptedLocationCount + rejectedLocationCount
         guard total > 0 else { return .unavailable }
         let rejectedRatio = Double(rejectedLocationCount) / Double(total)
-        return rejectedRatio <= 0.3 ? .good : .degraded
+        let acceptedAccuracies = trackPoints
+            .filter(\.isAccepted)
+            .map(\.horizontalAccuracy)
+            .sorted()
+        let medianAccuracy = acceptedAccuracies[acceptedAccuracies.count / 2]
+        let segmentCount = trackPoints.filter {
+            $0.isAccepted && $0.startsNewSegment
+        }.count
+        return rejectedRatio <= 0.3
+            && medianAccuracy <= configuration.preferredHorizontalAccuracy
+            && segmentCount == 1
+            ? .good
+            : .degraded
     }
 
     private func currentRouteQualityReason() -> RouteQualityReason? {
@@ -957,6 +1189,7 @@ actor WalkMetricsEngine {
         routeDistance = 0
         acceptedLocationCount = 0
         rejectedLocationCount = 0
+        lastProcessedLocationDate = nil
         lastAcceptedLocation = nil
         currentCoordinate = nil
         locationAccuracy = .unknown
@@ -964,6 +1197,8 @@ actor WalkMetricsEngine {
         locationUnavailableReason = nil
         routeSegmentStartPending = true
         trackPoints = []
+        requiresLocationReacquisition = false
+        locationReacquisitionCandidate = nil
         recoveryCause = nil
         smoothedSpeed = nil
         maximumSustainedSpeed = nil

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HealthSettingsView: View {
     @Environment(WalkHealthStore.self) private var store
+    @Environment(HealthWorkoutAutoImporter.self) private var autoImporter
     @State private var isConfirmingWorkoutExport = false
 
     var body: some View {
@@ -13,7 +14,7 @@ struct HealthSettingsView: View {
                             .font(.headline)
                         Text("After a walk, papaSteps can look for heart rate, walking asymmetry, steps, and distance in Apple Health.")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.textSecondary)
                     }
                 } icon: {
                     Image(systemName: WalkSymbol.healthDetail)
@@ -35,11 +36,11 @@ struct HealthSettingsView: View {
                 } else if store.accessState == .requested {
                     Text("Access has been requested. For privacy, an empty result may mean no matching samples or declined read access; papaSteps does not guess which.")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.textSecondary)
                 } else {
                     Text("Apple Health is unavailable on this device. Walk recording remains fully usable.")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.textSecondary)
                 }
             }
 
@@ -62,7 +63,7 @@ struct HealthSettingsView: View {
 
                 Text("When enabled, each completed walk and accepted route is written once using the local walk ID as an Apple Health correlation key. Turning this off does not delete existing workouts.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             Section("Workout import") {
@@ -76,18 +77,40 @@ struct HealthSettingsView: View {
 
                 Text("Review walking workouts from the last 90 days and choose which ones to copy into papaSteps. Existing papaSteps exports are omitted and workouts are imported only once.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
+
+                Toggle(
+                    "Import new walks automatically",
+                    isOn: Binding(
+                        get: { autoImporter.isEnabled },
+                        set: { enabled in
+                            Task { await autoImporter.setEnabled(enabled) }
+                        }
+                    )
+                )
+                .disabled(!autoImporter.isAvailable)
+                .accessibilityIdentifier("health.autoImport.toggle")
+
+                Text("Apple Health can wake papaSteps when a walking workout is saved, so an Apple Watch walk — recorded with the watch's own GPS — appears here without opening this screen. Only walks recorded after you turn this on are imported; use Import Walks for older ones.")
+                    .font(.footnote)
+                    .foregroundStyle(Color.textSecondary)
+
+                if let message = autoImporter.message {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(Color.textSecondary)
+                }
             }
 
             Section("Privacy") {
                 Text("Health and precise route data stay on this iPhone and in Apple Health. papaSteps does not upload them.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             if let message = store.lastMessage {
                 Section("Status") {
                     Text(message)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.textSecondary)
                 }
             }
         }

@@ -1,25 +1,15 @@
 import Foundation
 
 struct WalkEligibilityRules: Equatable, Sendable {
-    static let current = WalkEligibilityRules(
-        version: 1,
-        minimumMovingDuration: 5 * 60,
-        minimumDistanceMeters: 250
-    )
+    /// Any walk deliberately started and finished — via Start Walk or an
+    /// imported Fitness app workout — counts toward Progress, no matter how
+    /// short. The only disqualifier is a route papaSteps can't trust.
+    static let current = WalkEligibilityRules(version: 2)
 
     let version: Int
-    let minimumMovingDuration: TimeInterval
-    let minimumDistanceMeters: Double
 
     func isEligible(_ walk: WalkSummary) -> Bool {
-        guard walk.endDate != nil,
-              walk.movingDuration >= minimumMovingDuration,
-              let distance = walk.displayDistance,
-              distance >= minimumDistanceMeters,
-              walk.routeQuality != .unavailable else {
-            return false
-        }
-        return true
+        walk.endDate != nil && walk.routeQuality != .unavailable
     }
 }
 

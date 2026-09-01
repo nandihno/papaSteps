@@ -1,8 +1,10 @@
 import Foundation
 
 struct TrackingConfiguration: Equatable, Sendable {
-    var maximumLocationAge: TimeInterval = 10
+    var maximumLocationFutureSkew: TimeInterval = 1
+    var preferredHorizontalAccuracy: Double = 20
     var maximumHorizontalAccuracy: Double = 50
+    var maximumRouteGap: TimeInterval = 30
     var maximumVerticalAccuracy: Double = 30
     var maximumSpeedAccuracy: Double = 3
     var maximumCourseAccuracy: Double = 30
@@ -66,6 +68,16 @@ enum RouteLimitation: String, Codable, Equatable, Sendable {
     case permissionDenied
     case unavailable
     case poorSignal
+}
+
+enum LocationRejectionReason: String, Codable, Equatable, Sendable {
+    case invalidAccuracy
+    case outsideWalkInterval
+    case reducedAccuracy
+    case accuracyExceedsLimit
+    case nonMonotonicTimestamp
+    case impossibleJump
+    case reacquisitionUnconfirmed
 }
 
 struct WalkMetricsSnapshot: Equatable, Sendable {

@@ -26,6 +26,7 @@ final class LiveLocationCapabilityClient: NSObject, LocationCapabilityProviding,
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.activityType = .fitness
         manager.distanceFilter = kCLDistanceFilterNone
+        manager.pausesLocationUpdatesAutomatically = false
     }
 
     var snapshot: LocationCapabilitySnapshot {
@@ -124,39 +125,33 @@ final class LiveLocationCapabilityClient: NSObject, LocationCapabilityProviding,
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        if let location = locations.last {
+        let samples = LocationSampleBatch.samples(
+            from: locations,
+            accuracyAuthorization: accuracyState
+        )
+        if let sample = samples.last {
             latestFix = LocationFix(
-                latitude: location.coordinate.latitude,
-                longitude: location.coordinate.longitude,
-                horizontalAccuracy: location.horizontalAccuracy,
-                timestamp: location.timestamp
+                latitude: sample.coordinate.latitude,
+                longitude: sample.coordinate.longitude,
+                horizontalAccuracy: sample.horizontalAccuracy,
+                timestamp: sample.timestamp
             )
-
-            walkContinuation?.yield(
-                .location(
-                    WalkLocationSample(
-                        coordinate: WalkCoordinate(
-                            latitude: location.coordinate.latitude,
-                            longitude: location.coordinate.longitude
-                        ),
-                        timestamp: location.timestamp,
-                        altitude: location.altitude,
-                        horizontalAccuracy: location.horizontalAccuracy,
-                        verticalAccuracy: location.verticalAccuracy,
-                        speed: location.speed,
-                        speedAccuracy: location.speedAccuracy,
-                        course: location.course,
-                        courseAccuracy: location.courseAccuracy,
-                        accuracyAuthorization: accuracyState
-                    )
-                )
-            )
+        }
+        for sample in samples {
+            walkContinuation?.yield(.location(sample))
         }
         resumeLocationRequest()
     }
 
+    func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        guard walkContinuation != nil, snapshot.authorization.permitsLocation else { return }
+        manager.startUpdatingLocation()
+    }
+
     func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
-        walkContinuation?.yield(.unavailable("Location is temporarily unavailable."))
+        if !LocationFailurePolicy.isTransient(error) {
+            walkContinuation?.yield(.unavailable("Location is temporarily unavailable."))
+        }
         resumeLocationRequest()
     }
 
@@ -204,6 +199,39 @@ final class LiveLocationCapabilityClient: NSObject, LocationCapabilityProviding,
     private func beginBackgroundActivityIfNeeded() {
         guard backgroundActivitySession == nil else { return }
         backgroundActivitySession = CLBackgroundActivitySession()
+    }
+}
+
+enum LocationSampleBatch {
+    static func samples(
+        from locations: [CLLocation],
+        accuracyAuthorization: LocationAccuracyState
+    ) -> [WalkLocationSample] {
+        locations.map { location in
+            WalkLocationSample(
+                coordinate: WalkCoordinate(
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude
+                ),
+                timestamp: location.timestamp,
+                altitude: location.altitude,
+                horizontalAccuracy: location.horizontalAccuracy,
+                verticalAccuracy: location.verticalAccuracy,
+                speed: location.speed,
+                speedAccuracy: location.speedAccuracy,
+                course: location.course,
+                courseAccuracy: location.courseAccuracy,
+                accuracyAuthorization: accuracyAuthorization
+            )
+        }
+    }
+}
+
+enum LocationFailurePolicy {
+    static func isTransient(_ error: any Error) -> Bool {
+        let error = error as NSError
+        return error.domain == kCLErrorDomain
+            && error.code == CLError.Code.locationUnknown.rawValue
     }
 }
 

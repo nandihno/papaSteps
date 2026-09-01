@@ -6,7 +6,12 @@ import Observation
 final class HealthWorkoutImportStore {
     struct Item: Identifiable, Equatable, Sendable {
         let workout: HealthWalkingWorkout
+        /// Imported *and* complete. A walk still missing its route reports
+        /// `false` so it can be selected again.
         let isImported: Bool
+        /// Imported before Apple Health finished syncing the location series.
+        /// Re-importing is what fills the route in.
+        let isAwaitingRoute: Bool
 
         var id: UUID { workout.id }
     }
@@ -68,11 +73,24 @@ final class HealthWorkoutImportStore {
                 since: startDate,
                 limit: 100
             )
+            let candidateIDs = Set(workouts.map(\.id))
             let importedIDs = try repository.importedHealthWorkoutIDs(
-                in: Set(workouts.map(\.id))
+                in: candidateIDs
             )
-            items = workouts.map {
-                Item(workout: $0, isImported: importedIDs.contains($0.id))
+            let routelessIDs = try repository.healthWorkoutIDsAwaitingRoute(
+                in: candidateIDs
+            )
+            items = workouts.map { workout in
+                // A route-less walk is only worth re-offering while its route
+                // could still be syncing; after that it simply has none.
+                let isAwaitingRoute = routelessIDs.contains(workout.id)
+                    && workout.mayStillBeAwaitingRoute(at: referenceDate)
+                return Item(
+                    workout: workout,
+                    isImported: importedIDs.contains(workout.id)
+                        && !isAwaitingRoute,
+                    isAwaitingRoute: isAwaitingRoute
+                )
             }
             selectedIDs.formIntersection(
                 Set(items.filter { !$0.isImported }.map(\.id))
@@ -115,16 +133,28 @@ final class HealthWorkoutImportStore {
 
         let ids = selectedIDs
         var importedCount = 0
+        var repairedCount = 0
+        var stillSyncingCount = 0
         var failedCount = 0
         for item in items where ids.contains(item.id) && !item.isImported {
             do {
                 let payload = try await client.walkingWorkoutImport(id: item.id)
+                if item.isAwaitingRoute && payload.routePoints.isEmpty {
+                    // Apple Health has not handed over the route yet; the walk
+                    // is already saved, so there is nothing to write.
+                    stillSyncingCount += 1
+                    continue
+                }
                 let summary = try repository.importHealthWorkout(
                     payload,
                     importedAt: now(),
                     fallbackTimeZoneIdentifier: fallbackTimeZoneIdentifier()
                 )
-                importedCount += 1
+                if item.isAwaitingRoute {
+                    repairedCount += 1
+                } else {
+                    importedCount += 1
+                }
                 _ = await healthStore.enrichWalk(id: summary.id)
             } catch {
                 failedCount += 1
@@ -132,11 +162,20 @@ final class HealthWorkoutImportStore {
         }
         selectedIDs = []
         await load()
-        if failedCount == 0 {
-            message = "Imported \(importedCount) walking workout\(importedCount == 1 ? "" : "s") into papaSteps."
-        } else {
-            message = "Imported \(importedCount) workout\(importedCount == 1 ? "" : "s"); \(failedCount) could not be imported."
+        var parts: [String] = []
+        if importedCount > 0 || (repairedCount == 0 && failedCount == 0 && stillSyncingCount == 0) {
+            parts.append("Imported \(importedCount) walking workout\(importedCount == 1 ? "" : "s") into papaSteps.")
         }
-        return importedCount
+        if repairedCount > 0 {
+            parts.append("Added the route to \(repairedCount) previously imported walk\(repairedCount == 1 ? "" : "s").")
+        }
+        if stillSyncingCount > 0 {
+            parts.append("\(stillSyncingCount) walk\(stillSyncingCount == 1 ? " is" : "s are") still waiting on route data from Apple Health; try again shortly.")
+        }
+        if failedCount > 0 {
+            parts.append("\(failedCount) could not be imported.")
+        }
+        message = parts.joined(separator: " ")
+        return importedCount + repairedCount
     }
 }

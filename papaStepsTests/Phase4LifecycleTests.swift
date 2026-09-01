@@ -202,6 +202,7 @@ private final class Phase4RecordingWalkRepository: WalkRepository {
 
     func fetchDetail(id: UUID) throws -> WalkDetail? { nil }
     func importedHealthWorkoutIDs(in ids: Set<UUID>) throws -> Set<UUID> { [] }
+    func healthWorkoutIDsAwaitingRoute(in ids: Set<UUID>) throws -> Set<UUID> { [] }
     func importHealthWorkout(
         _ importedWorkout: HealthWalkingWorkoutImport,
         importedAt: Date,

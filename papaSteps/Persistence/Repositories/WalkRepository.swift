@@ -18,6 +18,12 @@ protocol WalkRepository: AnyObject {
     /// A route reduced to at most `maximumPoints`, for list thumbnails.
     func fetchRoutePreview(id: UUID, maximumPoints: Int) throws -> [WalkCoordinate]
     func importedHealthWorkoutIDs(in ids: Set<UUID>) throws -> Set<UUID>
+    /// Imported workouts that still hold no route.
+    ///
+    /// Apple Health can hand over a workout before its location series has
+    /// finished syncing, so these are worth re-importing: the second pass is
+    /// what fills the route in.
+    func healthWorkoutIDsAwaitingRoute(in ids: Set<UUID>) throws -> Set<UUID>
     @discardableResult
     func importHealthWorkout(
         _ importedWorkout: HealthWalkingWorkoutImport,
@@ -284,6 +290,21 @@ final class SwiftDataWalkRepository: WalkRepository {
         )
     }
 
+    func healthWorkoutIDsAwaitingRoute(in ids: Set<UUID>) throws -> Set<UUID> {
+        guard !ids.isEmpty else { return [] }
+        let descriptor = FetchDescriptor<WalkRecord>(
+            predicate: #Predicate { $0.healthKitWorkoutUUID != nil }
+        )
+        return Set(
+            try context.fetch(descriptor)
+                .filter {
+                    origin(from: $0) == .appleHealth && $0.trackPoints.isEmpty
+                }
+                .compactMap(\.healthKitWorkoutUUID)
+                .filter(ids.contains)
+        )
+    }
+
     @discardableResult
     func importHealthWorkout(
         _ importedWorkout: HealthWalkingWorkoutImport,
@@ -292,6 +313,14 @@ final class SwiftDataWalkRepository: WalkRepository {
     ) throws -> WalkSummary {
         let workout = importedWorkout.workout
         if let existing = try fetchRecord(healthKitWorkoutUUID: workout.id) {
+            // Re-importing is how a walk that arrived before its route gets
+            // one. Only an empty route is replaced, so a walk the user already
+            // has geometry for is never disturbed.
+            if existing.trackPoints.isEmpty, !importedWorkout.routePoints.isEmpty {
+                existing.updatedAt = importedAt
+                applyRoutePoints(importedWorkout.routePoints, to: existing)
+                try context.save()
+            }
             return summary(from: existing)
         }
 
@@ -317,17 +346,7 @@ final class SwiftDataWalkRepository: WalkRepository {
         record.averageSpeed = workout.distanceMeters.flatMap { distance in
             workout.movingDuration > 0 ? distance / workout.movingDuration : nil
         }
-        record.startAltitude = importedWorkout.routePoints.first?.altitude
-        record.endAltitude = importedWorkout.routePoints.last?.altitude
-        record.altitudeSource = importedWorkout.routePoints.isEmpty
-            ? .unavailable : .location
         record.altitudeQuality = .unavailable
-        record.routeQuality = importedWorkout.routePoints.count >= 2
-            ? .good : .unavailable
-        record.routeQualityReason = importedWorkout.routePoints.count >= 2
-            ? nil : .insufficientPoints
-        record.acceptedPointCount = importedWorkout.routePoints.count
-        record.rejectedPointCount = 0
         record.originRawValue = WalkOrigin.appleHealth.rawValue
         record.healthSourceName = workout.sourceName
         record.healthSourceBundleIdentifier = workout.sourceBundleIdentifier
@@ -335,9 +354,28 @@ final class SwiftDataWalkRepository: WalkRepository {
         record.healthKitWorkoutUUID = workout.id
         record.healthWorkoutExportStatusRawValue = HealthWorkoutExportStatus.disabled.rawValue
         record.healthEnrichmentStatus = .notRequested
-        syncTrackPoints(importedWorkout.routePoints, with: record, removeMissing: true)
+        applyRoutePoints(importedWorkout.routePoints, to: record)
         try context.save()
         return summary(from: record)
+    }
+
+    /// Writes an Apple Health route and every field derived from it.
+    ///
+    /// Shared by the first import and by the later route backfill so the two
+    /// cannot disagree about what an imported route implies.
+    private func applyRoutePoints(
+        _ routePoints: [NewTrackPoint],
+        to record: WalkRecord
+    ) {
+        record.startAltitude = routePoints.first?.altitude
+        record.endAltitude = routePoints.last?.altitude
+        record.altitudeSource = routePoints.isEmpty ? .unavailable : .location
+        record.routeQuality = routePoints.count >= 2 ? .good : .unavailable
+        record.routeQualityReason = routePoints.count >= 2
+            ? nil : .insufficientPoints
+        record.acceptedPointCount = routePoints.count
+        record.rejectedPointCount = 0
+        syncTrackPoints(routePoints, with: record, removeMissing: true)
     }
 
     func updateHealthEnrichmentStatus(

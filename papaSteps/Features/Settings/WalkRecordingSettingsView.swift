@@ -16,6 +16,10 @@ struct WalkRecordingSettingsView: View {
                 }
                 .accessibilityIdentifier("walk.settings.distanceUnit")
 
+                Text("Example: \(WalkMetricFormatting.distance(5_000, configuration: displayPreferences.configuration))")
+                    .font(.footnote)
+                    .foregroundStyle(Color.textSecondary)
+
                 Picker("Live movement", selection: Bindable(displayPreferences).speedDisplay) {
                     ForEach(WalkSpeedDisplay.allCases, id: \.self) { display in
                         Text(display.displayName).tag(display)
@@ -23,9 +27,13 @@ struct WalkRecordingSettingsView: View {
                 }
                 .accessibilityIdentifier("walk.settings.speedDisplay")
 
+                Text("Example: \(WalkMetricFormatting.speed(1.4, configuration: displayPreferences.configuration))")
+                    .font(.footnote)
+                    .foregroundStyle(Color.textSecondary)
+
                 Text("These choices change how current and saved walks are displayed. papaSteps always stores distance, altitude, and speed in base metric units.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             Section("Finish prompting") {
@@ -44,7 +52,7 @@ struct WalkRecordingSettingsView: View {
 
                 Text("papaSteps waits for corroborating step, movement, location, and Motion evidence. It never finishes a walk without your confirmation.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
 
                 if sessionStore.notificationAuthorizationState == .denied {
                     Button("Open Notification Settings") {
@@ -57,27 +65,27 @@ struct WalkRecordingSettingsView: View {
                 Label("Live walk metrics", systemImage: WalkSymbol.motion)
                 Text("During an active walk, the Lock Screen can show elapsed time, moving time, steps, distance, and Pause, Resume, Finish, or Keep Walking actions. Live Activities can be disabled separately in iPhone Settings.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             Section("Background recording") {
                 Text("Location recording continues only while a walk is active and uses When In Use access. papaSteps does not request Always Location access.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
             }
 
             Section("Privacy & data") {
                 NavigationLink {
                     PrivacyDataManagementView()
                 } label: {
-                    Label("Privacy & Data", systemImage: "hand.raised")
+                    Label("Privacy & Data", systemImage: WalkSymbol.privacy)
                 }
                 .disabled(!canManageLocalData)
 
                 if !canManageLocalData {
                     Text("Finish, pause and discard, or recover the current walk before deleting local data.")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.textSecondary)
                 }
             }
         }

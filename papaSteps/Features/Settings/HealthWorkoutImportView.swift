@@ -10,7 +10,7 @@ struct HealthWorkoutImportView: View {
                 ProgressView("Checking Apple Health…")
             } else if store.items.isEmpty {
                 ContentUnavailableView {
-                    Label("No Walking Workouts", systemImage: "figure.walk")
+                    Label("No walking workouts", systemImage: WalkSymbol.walk)
                 } description: {
                     Text(store.message ?? "No walking workouts were returned for the last 90 days. An empty result can also mean read access was declined.")
                 } actions: {
@@ -43,7 +43,7 @@ struct HealthWorkoutImportView: View {
                     if let message = store.message {
                         Section("Status") {
                             Text(message)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.textSecondary)
                         }
                     }
                 }
@@ -112,18 +112,23 @@ private struct HealthWorkoutImportRow: View {
                             item.workout.distanceMeters,
                             configuration: displayPreferences.configuration
                         ),
-                        systemImage: "ruler"
+                        systemImage: WalkSymbol.distance
                     )
                     Label(
                         WalkMetricFormatting.duration(item.workout.movingDuration),
-                        systemImage: "timer"
+                        systemImage: WalkSymbol.movingTime
                     )
                 }
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.textSecondary)
                 Text(item.workout.sourceName)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
+                if item.isAwaitingRoute {
+                    Text("Imported without a route — import again to add the map.")
+                        .font(.caption)
+                        .foregroundStyle(Color.signalCaution)
+                }
             }
 
             Spacer()
@@ -136,15 +141,25 @@ private struct HealthWorkoutImportRow: View {
         }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(item.isImported ? "Already imported" : (isSelected ? "Selected" : "Not selected"))
+        .accessibilityValue(accessibilityValue)
+    }
+
+    private var accessibilityValue: String {
+        if item.isImported { return "Already imported" }
+        if item.isAwaitingRoute {
+            return isSelected
+                ? "Imported without a route, selected to add the route"
+                : "Imported without a route, not selected"
+        }
+        return isSelected ? "Selected" : "Not selected"
     }
 
     private var selectionImage: String {
-        if item.isImported { return "checkmark.circle.fill" }
-        return isSelected ? "checkmark.circle.fill" : "circle"
+        if item.isImported { return WalkSymbol.good }
+        return isSelected ? WalkSymbol.good : "circle"
     }
 
     private var selectionColor: Color {
-        item.isImported ? .green : (isSelected ? .accentColor : .secondary)
+        item.isImported ? .signalGood : (isSelected ? .brandGreenInk : .textSecondary)
     }
 }
